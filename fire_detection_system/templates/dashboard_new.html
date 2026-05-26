@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🚨 AI Fire & Smoke Detection Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body class="dashboard">
+    <div class="bg-animation"></div>
+    <header class="header">
+        <div class="header-brand">
+            <div class="logo">🔥</div>
+            <div>
+                <h1>AI Fire & Smoke Detection</h1>
+                <span>Secure dashboard with live detection</span>
+            </div>
+        </div>
+        <div class="header-user">
+            <div class="user-info">
+                <div class="user-name">Welcome, {{ user.get('name', user.get('username', 'Guest')) }}</div>
+                <div class="user-email">{{ user.get('email', '') }}</div>
+            </div>
+            <a href="{{ url_for('logout') }}" class="logout-btn">
+                <i class="fas fa-sign-out-alt"></i> Logout
+            </a>
+        </div>
+    </header>
+
+    <main class="main-content">
+        <div class="stats-bar">
+            <div class="stat-card">
+                <div class="stat-icon blue"><i class="fas fa-clock"></i></div>
+                <div class="stat-info">
+                    <h3 id="uptime">00:00:00</h3>
+                    <p>System Uptime</p>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon green"><i class="fas fa-video"></i></div>
+                <div class="stat-info">
+                    <h3 id="fpsDisplay">0</h3>
+                    <p>FPS</p>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon orange"><i class="fas fa-bell"></i></div>
+                <div class="stat-info">
+                    <h3 id="alertCount">0</h3>
+                    <p>Total Alerts</p>
+                </div>
+            </div>
+            <div class="stat-card" id="fireCard">
+                <div class="stat-icon red"><i class="fas fa-fire"></i></div>
+                <div class="stat-info">
+                    <h3 id="fireStatus">CLEAR</h3>
+                    <p>Fire Status</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="content-grid">
+            <div class="video-section">
+                <div class="video-header">
+                    <h2><i class="fas fa-video"></i> Live Camera Feed</h2>
+                    <span class="live-badge" id="liveBadge" style="display: none;">LIVE</span>
+                </div>
+                <div class="video-container">
+                    <img id="videoFeed" src="" alt="Live detection stream">
+                    <div class="video-overlay">
+                        <div>FPS: <span id="fpsOverlay">0</span></div>
+                        <div>Threshold: <span id="thresholdOverlay">0.60</span></div>
+                    </div>
+                </div>
+                <div class="video-controls">
+                    <div class="control-group">
+                        <button id="startDetection" class="btn-control"><i class="fas fa-play"></i> Start Detection</button>
+                        <button id="stopDetection" class="btn-control" disabled><i class="fas fa-stop"></i> Stop</button>
+                    </div>
+                    <div class="control-group">
+                        <label>Confidence:</label>
+                        <input type="range" id="thresholdSlider" min="0.1" max="1.0" step="0.05" value="0.6">
+                        <span class="threshold-value" id="thresholdValue">0.60</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sidebar">
+                <div class="panel">
+                    <div class="panel-header">
+                        <h3><i class="fas fa-bell"></i> Alert History</h3>
+                        <button id="clearAlerts" class="btn-control" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;"><i class="fas fa-trash"></i> Clear</button>
+                    </div>
+                    <div class="panel-body" id="alertList">
+                        <div class="no-data">
+                            <i class="fas fa-bell-slash"></i>
+                            <p>No alerts yet</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel" id="smokeCard">
+                    <div class="panel-header">
+                        <h3><i class="fas fa-shield-alt"></i> System Status</h3>
+                    </div>
+                    <div class="panel-body">
+                        <div class="detection-list">
+                            <div class="detection-item">
+                                <div class="detection-name"><div class="detection-dot fire"></div>Fire Detection</div>
+                                <span id="fireStatusText" style="color: var(--success);">Clear</span>
+                            </div>
+                            <div class="detection-item">
+                                <div class="detection-name"><div class="detection-dot smoke"></div>Smoke Detection</div>
+                                <span id="smokeStatusText" style="color: var(--success);">Clear</span>
+                            </div>
+                            <div class="detection-item">
+                                <div class="detection-name"><div class="detection-dot other"></div>Camera Status</div>
+                                <span style="color: var(--success);">Active</span>
+                            </div>
+                            <div class="detection-item">
+                                <div class="detection-name"><div class="detection-dot other"></div>AI Model</div>
+                                <span style="color: var(--info);">YOLOv8n</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <div class="fullscreen-alert" id="fullscreenAlert">
+        <i class="fas fa-fire"></i>
+        <h2>Critical Alert</h2>
+        <p>Fire or smoke detected in the camera view.</p>
+    </div>
+
+    <div class="toast-container" id="toastContainer"></div>
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

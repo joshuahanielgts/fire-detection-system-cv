@@ -1,0 +1,913 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🚨 Agniva2.0 Fire & Smoke Detection Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', sans-serif;
+            background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 50%, #16213e 100%);
+            color: #fff;
+            min-height: 100vh;
+        }
+
+        /* Header */
+        .header {
+            background: rgba(10, 14, 39, 0.8);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid rgba(255, 107, 53, 0.1);
+            padding: 1.5rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 1.5rem;
+        }
+
+        .logo {
+            width: 50px;
+            height: 50px;
+            background: linear-gradient(135deg, #ff6b35 0%, #ff8c42 100%);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.8rem;
+            box-shadow: 0 0 20px rgba(255, 107, 53, 0.3);
+        }
+
+        .header-title {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .app-name {
+            font-size: 1.3rem;
+            font-weight: 700;
+            color: #fff;
+        }
+
+        .welcome-text {
+            font-size: 0.85rem;
+            color: #a0a0b8;
+            margin-top: 0.2rem;
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 2rem;
+        }
+
+        .fullscreen-hint {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: rgba(255, 107, 53, 0.15);
+            border: 1px solid rgba(255, 107, 53, 0.3);
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            color: #ff8c42;
+        }
+
+        .fullscreen-hint kbd {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 0.2rem 0.5rem;
+            border-radius: 3px;
+            font-family: monospace;
+        }
+
+        .notification-icon {
+            position: relative;
+            font-size: 1.5rem;
+            cursor: pointer;
+            transition: color 0.3s;
+        }
+
+        .notification-badge {
+            position: absolute;
+            top: -5px;
+            right: -5px;
+            background: #ff4757;
+            color: #fff;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.7rem;
+            font-weight: 600;
+        }
+
+        .notification-icon:hover {
+            color: #ff8c42;
+        }
+
+        .user-icon {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+            cursor: pointer;
+            transition: transform 0.3s;
+        }
+
+        .user-icon:hover {
+            transform: scale(1.1);
+        }
+
+        /* Main Content */
+        .main-container {
+            padding: 2rem;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        /* Section Header */
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+        }
+
+        .section-title {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #fff;
+            margin-bottom: 0.5rem;
+        }
+
+        .section-subtitle {
+            color: #a0a0b8;
+            font-size: 0.95rem;
+        }
+
+        .btn-add {
+            background: linear-gradient(135deg, #ff6b35 0%, #ff8c42 100%);
+            color: #fff;
+            border: none;
+            padding: 0.8rem 1.6rem;
+            border-radius: 10px;
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            transition: all 0.3s;
+            box-shadow: 0 10px 25px rgba(255, 107, 53, 0.2);
+        }
+
+        .btn-add:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 15px 35px rgba(255, 107, 53, 0.3);
+        }
+
+        /* Properties Grid */
+        .properties-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 4rem;
+        }
+
+        .property-card {
+            background: rgba(26, 31, 58, 0.6);
+            border: 1px solid rgba(255, 107, 53, 0.2);
+            border-radius: 15px;
+            padding: 1.5rem;
+            backdrop-filter: blur(10px);
+            transition: all 0.3s;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .property-card:hover {
+            border-color: rgba(255, 107, 53, 0.4);
+            background: rgba(26, 31, 58, 0.8);
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(255, 107, 53, 0.2);
+        }
+
+        .property-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 1.5rem;
+        }
+
+        .property-icon {
+            width: 60px;
+            height: 60px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.8rem;
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
+        }
+
+        .property-actions {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .action-btn {
+            width: 32px;
+            height: 32px;
+            background: rgba(255, 107, 53, 0.2);
+            border: 1px solid rgba(255, 107, 53, 0.3);
+            border-radius: 6px;
+            color: #ff8c42;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s;
+            font-size: 0.85rem;
+        }
+
+        .action-btn:hover {
+            background: rgba(255, 107, 53, 0.3);
+            border-color: rgba(255, 107, 53, 0.5);
+        }
+
+        .action-btn.delete:hover {
+            background: rgba(255, 71, 87, 0.3);
+            border-color: rgba(255, 71, 87, 0.5);
+            color: #ff4757;
+        }
+
+        .property-name {
+            font-size: 1.2rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            color: #fff;
+        }
+
+        .property-address {
+            color: #a0a0b8;
+            font-size: 0.9rem;
+            margin-bottom: 1rem;
+        }
+
+        .property-footer {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: #ff8c42;
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+
+        .property-footer i {
+            font-size: 1rem;
+        }
+
+        .camera-info {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: #667eea;
+        }
+
+        /* Live AI Demo Section */
+        .demo-section {
+            margin-top: 4rem;
+        }
+
+        .demo-title {
+            font-size: 2rem;
+            font-weight: 700;
+            text-align: center;
+            margin-bottom: 0.5rem;
+        }
+
+        .demo-subtitle {
+            text-align: center;
+            color: #a0a0b8;
+            margin-bottom: 2rem;
+        }
+
+        .demo-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+            margin-bottom: 2rem;
+        }
+
+        .demo-panel {
+            background: rgba(26, 31, 58, 0.6);
+            border: 1px solid rgba(255, 107, 53, 0.2);
+            border-radius: 15px;
+            padding: 2rem;
+            backdrop-filter: blur(10px);
+        }
+
+        .demo-panel-title {
+            font-size: 1.3rem;
+            font-weight: 600;
+            margin-bottom: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .demo-controls {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .demo-btn {
+            padding: 1rem;
+            border: none;
+            border-radius: 10px;
+            font-weight: 600;
+            cursor: pointer;
+            font-size: 0.95rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.75rem;
+            transition: all 0.3s;
+        }
+
+        .demo-btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+            box-shadow: 0 10px 25px rgba(102, 126, 234, 0.2);
+        }
+
+        .demo-btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 15px 35px rgba(102, 126, 234, 0.3);
+        }
+
+        .demo-btn-secondary {
+            background: rgba(255, 107, 53, 0.2);
+            color: #ff8c42;
+            border: 1px solid rgba(255, 107, 53, 0.3);
+        }
+
+        .demo-btn-secondary:hover {
+            background: rgba(255, 107, 53, 0.3);
+            border-color: rgba(255, 107, 53, 0.5);
+        }
+
+        .file-input-wrapper {
+            display: flex;
+            gap: 0.75rem;
+            align-items: center;
+        }
+
+        .file-input-wrapper input[type="file"] {
+            display: none;
+        }
+
+        .file-label {
+            background: #ff8c42;
+            color: #fff;
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+
+        .file-label:hover {
+            background: #ff6b35;
+        }
+
+        .file-text {
+            color: #a0a0b8;
+            font-size: 0.9rem;
+        }
+
+        .live-detection-panel {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 400px;
+            background: radial-gradient(circle at center, rgba(0, 0, 0, 0.3), rgba(0, 0, 0, 0.7));
+            border-radius: 15px;
+        }
+
+        .live-detection-empty {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .live-icon {
+            font-size: 4rem;
+            color: rgba(255, 107, 53, 0.3);
+        }
+
+        .live-message {
+            text-align: center;
+            color: #a0a0b8;
+            font-size: 0.95rem;
+        }
+
+        .live-video {
+            width: 100%;
+            height: 400px;
+            background: #000;
+            border-radius: 15px;
+            object-fit: cover;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .header {
+                flex-direction: column;
+                gap: 1rem;
+            }
+
+            .header-right {
+                width: 100%;
+                justify-content: space-between;
+            }
+
+            .demo-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .properties-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .section-title {
+                font-size: 1.5rem;
+            }
+
+            .fullscreen-hint {
+                display: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="header-left">
+            <div class="logo">🔥</div>
+            <div class="header-title">
+                <div class="app-name">Agniva2.0 Dashboard</div>
+                <div class="welcome-text">Welcome back, {{ user.get('name', user.get('username', 'Guest')) }}</div>
+            </div>
+        </div>
+        <div class="header-right">
+            <div class="fullscreen-hint">
+                <span>To exit full screen, press and hold <kbd>Esc</kbd></span>
+            </div>
+            <div class="notification-icon">
+                <i class="fas fa-bell"></i>
+                <span class="notification-badge">4</span>
+            </div>
+            <div class="user-icon">
+                <i class="fas fa-user"></i>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <div class="main-container">
+        <!-- My Properties Section -->
+        <div class="section-header">
+            <div>
+                <h2 class="section-title">My Properties</h2>
+                <p class="section-subtitle">Manage your protected properties</p>
+            </div>
+            <button class="btn-add">
+                <i class="fas fa-plus"></i>
+                Add Property
+            </button>
+        </div>
+
+        <div class="properties-grid">
+            <!-- Property Card 1 -->
+            <div class="property-card">
+                <div class="property-card-header">
+                    <div class="property-icon">🏠</div>
+                    <div class="property-actions">
+                        <button class="action-btn" title="View Details"><i class="fas fa-eye"></i></button>
+                        <button class="action-btn" title="Edit"><i class="fas fa-edit"></i></button>
+                        <button class="action-btn delete" title="Delete"><i class="fas fa-trash"></i></button>
+                    </div>
+                </div>
+                <h3 class="property-name">Property</h3>
+                <p class="property-address">IIT Kattayam Hackathon Hall</p>
+                <div class="property-footer">
+                    <i class="fas fa-map-marker-alt"></i>
+                    <span>9.7557, 76.6487</span>
+                </div>
+                <div class="camera-info" style="margin-top: 1rem;">
+                    <i class="fas fa-video"></i>
+                    <span>1 cameras</span>
+                </div>
+            </div>
+
+            <!-- Property Card 2 -->
+            <div class="property-card">
+                <div class="property-card-header">
+                    <div class="property-icon">🏠</div>
+                    <div class="property-actions">
+                        <button class="action-btn" title="View Details"><i class="fas fa-eye"></i></button>
+                        <button class="action-btn" title="Edit"><i class="fas fa-edit"></i></button>
+                        <button class="action-btn delete" title="Delete"><i class="fas fa-trash"></i></button>
+                    </div>
+                </div>
+                <h3 class="property-name">Property</h3>
+                <p class="property-address">Elliot's Beach Promenade, Besant Nagar, Chennai</p>
+                <div class="property-footer">
+                    <i class="fas fa-map-marker-alt"></i>
+                    <span>13.0010, 80.2680</span>
+                </div>
+                <div class="camera-info" style="margin-top: 1rem;">
+                    <i class="fas fa-video"></i>
+                    <span>1 cameras</span>
+                </div>
+            </div>
+
+            <!-- Property Card 3 -->
+            <div class="property-card">
+                <div class="property-card-header">
+                    <div class="property-icon">🏠</div>
+                    <div class="property-actions">
+                        <button class="action-btn" title="View Details"><i class="fas fa-eye"></i></button>
+                        <button class="action-btn" title="Edit"><i class="fas fa-edit"></i></button>
+                        <button class="action-btn delete" title="Delete"><i class="fas fa-trash"></i></button>
+                    </div>
+                </div>
+                <h3 class="property-name">Property</h3>
+                <p class="property-address">100 Feet Bypass Road, Velachery, Chennai*</p>
+                <div class="property-footer">
+                    <i class="fas fa-map-marker-alt"></i>
+                    <span>12.9810, 80.2180</span>
+                </div>
+                <div class="camera-info" style="margin-top: 1rem;">
+                    <i class="fas fa-video"></i>
+                    <span>0 cameras</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Live AI Demo Section -->
+        <div class="demo-section">
+            <h2 class="demo-title">Live AI Demo</h2>
+            <p class="demo-subtitle">Test the fire detection system in real-time</p>
+
+            <div class="demo-grid">
+                <!-- Demo Controls -->
+                <div class="demo-panel">
+                    <div class="demo-panel-title">
+                        <i class="fas fa-sliders-h"></i>
+                        Demo Controls
+                    </div>
+                    <div class="demo-controls">
+                        <button class="demo-btn demo-btn-primary" onclick="startWebcam()">
+                            <i class="fas fa-video"></i>
+                            Use Laptop Webcam
+                        </button>
+                        <div class="file-input-wrapper">
+                            <label class="file-label">Choose File</label>
+                            <input type="file" id="fileInput" accept="image/*" onchange="handleFileSelect(event)">
+                            <span class="file-text" id="fileName">No file chosen</span>
+                        </div>
+                        <button class="demo-btn demo-btn-secondary">
+                            <i class="fas fa-arrow-up"></i>
+                            Upload Demo Video
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Live AI Detection -->
+                <div class="demo-panel">
+                    <div class="demo-panel-title">
+                        <i class="fas fa-brain"></i>
+                        Live AI Detection
+                    </div>
+                    <div class="live-detection-panel" id="liveDetectionPanel">
+                        <div class="live-detection-empty">
+                            <div class="live-icon"><i class="fas fa-eye"></i></div>
+                            <p class="live-message">Select a demo option to start AI detection</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function startWebcam() {
+            const panel = document.getElementById('liveDetectionPanel');
+            panel.innerHTML = '<video class="live-video" autoplay playsinline></video>';
+            
+            navigator.mediaDevices.getUserMedia({ video: true })
+                .then(stream => {
+                    const video = panel.querySelector('video');
+                    video.srcObject = stream;
+                })
+                .catch(err => {
+                    panel.innerHTML = '<div class="live-detection-empty"><div class="live-icon"><i class="fas fa-exclamation-triangle"></i></div><p class="live-message">Camera access denied</p></div>';
+                });
+        }
+
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (file) {
+                document.getElementById('fileName').textContent = file.name;
+                const panel = document.getElementById('liveDetectionPanel');
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    panel.innerHTML = `<img src="${e.target.result}" style="width: 100%; height: 400px; object-fit: contain; border-radius: 15px;">`;
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+    </script>
+</body>
+</html>
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #0a0a1a 0%, #1a1a2e 50%, #16213e 100%);
+            color: #fff;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+        
+        /* Animated Background */
+        .bg-animation {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            z-index: -1;
+            overflow: hidden;
+        }
+        
+        .bg-animation::before {
+            content: '';
+            position: absolute;
+            top: -50%; left: -50%;
+            width: 200%; height: 200%;
+            background: 
+                radial-gradient(circle at 20% 50%, rgba(255,71,87,0.08) 0%, transparent 50%),
+                radial-gradient(circle at 80% 20%, rgba(30,144,255,0.06) 0%, transparent 50%),
+                radial-gradient(circle at 50% 80%, rgba(46,213,115,0.04) 0%, transparent 50%);
+            animation: rotateBg 30s linear infinite;
+        }
+        
+        @keyframes rotateBg {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        
+        .particles {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: -1;
+            pointer-events: none;
+        }
+        
+        .particle {
+            position: absolute;
+            width: 4px; height: 4px;
+            background: rgba(255,71,87,0.3);
+            border-radius: 50%;
+            animation: floatUp linear infinite;
+        }
+        
+        @keyframes floatUp {
+            0% { transform: translateY(100vh) scale(0); opacity: 0; }
+            10% { opacity: 1; }
+            90% { opacity: 1; }
+            100% { transform: translateY(-10vh) scale(1); opacity: 0; }
+        }
+        
+        /* Header */
+        .header {
+            background: rgba(255,255,255,0.05);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            padding: 1rem 2rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        
+        .header-brand {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        
+        .header-brand .logo {
+            width: 45px; height: 45px;
+            background: linear-gradient(135deg, #ff4757 0%, #ff6348 100%);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            box-shadow: 0 0 20px rgba(255,71,87,0.4);
+            animation: pulseGlow 2s ease-in-out infinite;
+        }
+        
+        @keyframes pulseGlow {
+            0%, 100% { box-shadow: 0 0 20px rgba(255,71,87,0.4); }
+            50% { box-shadow: 0 0 40px rgba(255,71,87,0.7); }
+        }
+        
+        .header-brand h1 {
+            font-size: 1.4rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #fff 0%, #a0a0b0 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .header-brand .subtitle {
+            color: #a0a0b0;
+            font-size: 0.85rem;
+        }
+        
+        .header-user {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        
+        .user-info {
+            text-align: right;
+        }
+        
+        .user-name {
+            font-weight: 600;
+            font-size: 0.95rem;
+        }
+        
+        .user-email {
+            font-size: 0.8rem;
+            color: #a0a0b0;
+        <div class="video-section">
+            <div class="video-header">
+                <h2><i class="fas fa-video"></i> Live Camera Feed</h2>
+                <span class="live-badge" id="liveBadge" style="display: none;">LIVE</span>
+            </div>
+            <div class="video-container">
+                <img id="videoFeed" src="" alt="Live detection stream">
+                <div class="video-overlay">
+                    <div>FPS: <span id="fpsOverlay">0</span></div>
+                    <div>Threshold: <span id="thresholdOverlay">0.60</span></div>
+                </div>
+            </div>
+            <div class="video-controls">
+                <div class="control-group">
+                    <button id="startDetection" class="btn-control">
+                        <i class="fas fa-play"></i> Start Detection
+                    </button>
+                    <button id="stopDetection" class="btn-control" disabled>
+                        <i class="fas fa-stop"></i> Stop
+                    </button>
+                </div>
+                <div class="control-group">
+                    <label>Confidence:</label>
+                    <input type="range" id="thresholdSlider" min="0.1" max="1.0" step="0.05" value="0.6">
+                    <span class="threshold-value" id="thresholdValue">0.60</span>
+                </div>
+                <div class="control-group">
+                    <button id="fullscreenBtn" class="btn-control">
+                        <i class="fas fa-expand"></i> Fullscreen
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <!-- Alerts Panel -->
+            <div class="panel">
+                <div class="panel-header">
+                    <h3><i class="fas fa-bell"></i> Alert History</h3>
+                    <button id="clearAlerts" class="btn-control" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;">
+                        <i class="fas fa-trash"></i> Clear
+                    </button>
+                </div>
+                <div class="panel-body" id="alertList">
+                    <div class="no-data">
+                        <i class="fas fa-bell-slash" style="font-size: 2.5rem; margin-bottom: 1rem; opacity: 0.5;"></i>
+                        <p>No alerts yet</p>
+                        <p style="font-size: 0.85rem; margin-top: 0.5rem;">Start detection to monitor alerts</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Status Panel -->
+            <div class="panel" id="smokeCard">
+                <div class="panel-header">
+                    <h3><i class="fas fa-shield-alt"></i> System Status</h3>
+                </div>
+                <div class="panel-body">
+                    <div class="detection-list">
+                        <div class="detection-item">
+                            <div class="detection-name"><div class="detection-dot fire"></div>Fire Detection</div>
+                            <span id="fireStatusText" style="color: var(--success);">Clear</span>
+                        </div>
+                        <div class="detection-item">
+                            <div class="detection-name"><div class="detection-dot smoke"></div>Smoke Detection</div>
+                            <span id="smokeStatusText" style="color: var(--success);">Clear</span>
+                        </div>
+                        <div class="detection-item">
+                            <div class="detection-name"><div class="detection-dot other"></div>Camera Status</div>
+                            <span style="color: var(--success);">Active</span>
+                        </div>
+                        <div class="detection-item">
+                            <div class="detection-name"><div class="detection-dot other"></div>AI Model</div>
+                            <span style="color: var(--info);">YOLOv8n</span>
+                        </div>
+                        <div class="detection-item">
+                            <div class="detection-name"><div class="detection-dot other"></div>Last Update</div>
+                            <span id="lastUpdate" style="color: var(--text-muted); font-size: 0.85rem;">-</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Quick Actions -->
+            <div class="panel">
+                <div class="panel-header">
+                    <h3><i class="fas fa-bolt"></i> Quick Actions</h3>
+                </div>
+                <div class="panel-body">
+                    <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+                        <div style="padding: 1rem; background: var(--dark); border-radius: 10px; border-left: 3px solid var(--info);">
+                            <h4 style="font-size: 0.9rem; margin-bottom: 0.25rem;">Keyboard Shortcuts</h4>
+                            <p style="font-size: 0.8rem; color: var(--text-muted);">
+                                <kbd style="background: var(--border); padding: 0.15rem 0.4rem; border-radius: 4px; font-family: monospace;">Space</kbd> Start/Stop<br>
+                                <kbd style="background: var(--border); padding: 0.15rem 0.4rem; border-radius: 4px; font-family: monospace;">F</kbd> Fullscreen<br>
+                                <kbd style="background: var(--border); padding: 0.15rem 0.4rem; border-radius: 4px; font-family: monospace;">ESC</kbd> Stop
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</main>
+
+<!-- Fullscreen Alert Overlay -->
+<div class="fullscreen-alert" id="fullscreenAlert">
+    <i class="fas fa-exclamation-triangle" style="font-size: 4rem; margin-bottom: 1rem;"></i>
+    <h2>EMERGENCY ALERT</h2>
+    <p>Fire or smoke detected in camera view!</p>
+</div>
+
+<!-- Toast Container -->
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+    // Create floating particles
+    const particlesContainer = document.getElementById('particles');
+    for (let i = 0; i < 20; i++) {
+        const particle = document.createElement('div');
+        particle.className = 'particle';
+        particle.style.left = Math.random() * 100 + '%';
+        particle.style.animationDuration = (Math.random() * 10 + 10) + 's';
+        particle.style.animationDelay = Math.random() * 10 + 's';
+        particle.style.background = Math.random() > 0.5 ? 'rgba(255,71,87,0.3)' : 'rgba(30,144,255,0.2)';
+        particlesContainer.appendChild(particle);
+    }
+</script>
+{% endblock %}
+
