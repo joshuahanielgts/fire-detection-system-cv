@@ -14,12 +14,12 @@ if login.exists():
     login.unlink()
 if login_new.exists():
     login_new.rename(login)
-    print(f'✓ Replaced login.html')
+    print('OK Replaced login.html')
 
 if dashboard.exists():
     dashboard.unlink()
 if dashboard_new.exists():
     dashboard_new.rename(dashboard)
-    print(f'✓ Replaced dashboard.html')
+    print('OK Replaced dashboard.html')
 
 print('Done!')
