@@ -13,6 +13,11 @@ Agniva 2.0 uses Vercel's multi-runtime capability:
    - Deep-learning packages (`torch`, `torchvision`, `ultralytics`) are omitted from Vercel's dependencies.
    - The backend automatically detects the serverless deployment and launches **Simulated Camera Mode**, feeding a synthetic camera video stream with simulated fire/smoke boxes and populating the dashboard's live metrics and alert logs.
 
+> [!IMPORTANT]
+**Vercel Lambda Bundle Limit (Resolved)**
+- Vercel Serverless Functions have a maximum size limit of 250MB unzipped. To ensure the deployment is under this limit, the root folder contains a `.vercelignore` file that ignores the React `node_modules/`, compiler build artifacts (`dist/`), temporary folders, local run scripts, and the local YOLO model weights (`yolov8n.pt`).
+- This keeps the Vercel deploy package size at less than 1MB, ensuring it deploys instantly and without bundle size errors.
+
 ---
 
 ## 📋 Prerequisites
