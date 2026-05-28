@@ -154,15 +154,28 @@ def init_camera():
         is_mock_camera = True
         return True
     if camera is None or not camera.isOpened():
-        try:
-            camera = cv2.VideoCapture(0)
-            if camera.isOpened():
-                print("[OK] Camera opened")
-                return True
-        except Exception as e:
-            print(f"[WARN] Camera init threw exception: {e}")
-        
-        print("[INFO] Physical camera failed to open - using simulated camera feed")
+        # Try multiple camera indices (0, 1, 2)
+        for index in [0, 1, 2]:
+            try:
+                # Try DirectShow on Windows first (much more stable/faster)
+                if os.name == 'nt':
+                    print(f"[INFO] Attempting to open camera index {index} with CAP_DSHOW on Windows...")
+                    camera = cv2.VideoCapture(index, cv2.CAP_DSHOW)
+                else:
+                    print(f"[INFO] Attempting to open camera index {index}...")
+                    camera = cv2.VideoCapture(index)
+                
+                # Fallback to standard capture if CAP_DSHOW failed or not on Windows
+                if camera is None or not camera.isOpened():
+                    camera = cv2.VideoCapture(index)
+                    
+                if camera is not None and camera.isOpened():
+                    print(f"[OK] Camera opened successfully at index {index}")
+                    return True
+            except Exception as e:
+                print(f"[WARN] Failed to open camera at index {index}: {e}")
+                
+        print("[INFO] Physical camera failed to open on all indices - using simulated camera feed")
         is_mock_camera = True
         return True
     return True

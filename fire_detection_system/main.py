@@ -12,10 +12,26 @@ def main():
 
     print("Pro Tip: For real fire/smoke detection, download a specialized model")
 
-    # Open webcam (0 is default camera)
-    cap = cv2.VideoCapture(0)
+    # Open webcam (try multiple camera indices: 0, 1, 2)
+    import os
+    cap = None
+    for index in [0, 1, 2]:
+        try:
+            if os.name == 'nt':
+                cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)
+            else:
+                cap = cv2.VideoCapture(index)
+                
+            if cap is None or not cap.isOpened():
+                cap = cv2.VideoCapture(index)
+                
+            if cap is not None and cap.isOpened():
+                print(f"Webcam opened successfully at index {index}")
+                break
+        except Exception as e:
+            print(f"Failed to open webcam at index {index}: {e}")
 
-    if not cap.isOpened():
+    if cap is None or not cap.isOpened():
         print("Error: Could not open webcam")
         print("Tip: Check if camera is connected and not used by another app")
         return
