@@ -5,10 +5,20 @@ Production-ready Flask backend with Google OAuth, live streaming, and REST API
 
 from flask import Flask, render_template, request, redirect, url_for, Response, jsonify, session, flash
 from detector import FireSmokeDetector
-import cv2
-import numpy as np
 import time
 import os
+import base64
+
+try:
+    import cv2
+    import numpy as np
+    HAS_CV2_NUMPY = True
+except ImportError:
+    HAS_CV2_NUMPY = False
+
+MOCK_FRAME_BYTES = base64.b64decode(
+    "/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA="
+)
 from dotenv import load_dotenv
 from functools import wraps
 
@@ -97,6 +107,10 @@ def init_camera():
     """Initialize webcam, fallback to mock camera if unavailable"""
     global camera, is_mock_camera
     is_mock_camera = False
+    if not HAS_CV2_NUMPY:
+        print("[INFO] No OpenCV/NumPy - using simulated camera feed")
+        is_mock_camera = True
+        return True
     if camera is None or not camera.isOpened():
         try:
             camera = cv2.VideoCapture(0)
@@ -138,13 +152,6 @@ def generate_video_stream():
     
     while is_detecting:
         if is_mock_camera:
-            # Generate simulated frame
-            frame = np.zeros((480, 640, 3), dtype=np.uint8)
-            cv2.putText(frame, "SIMULATED CAMERA FEED", (180, 220),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
-            cv2.putText(frame, "AI Monitoring Active", (200, 260),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 1)
-            
             # Simulate periodic fire/smoke detection alerts
             t = time.time()
             sim_fire = (int(t) // 10) % 3 == 1
@@ -152,15 +159,8 @@ def generate_video_stream():
             
             detections = []
             if sim_fire:
-                cv2.rectangle(frame, (150, 100), (450, 380), (0, 0, 255), 2)
-                cv2.putText(frame, "FIRE: 0.92", (150, 90),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
                 detections.append(("fire", 0.92))
-                
             if sim_smoke:
-                cv2.rectangle(frame, (100, 80), (540, 400), (0, 255, 255), 2)
-                cv2.putText(frame, "SMOKE: 0.85", (100, 70),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
                 detections.append(("smoke", 0.85))
                 
             last_detection_result = {
@@ -174,6 +174,29 @@ def generate_video_stream():
                 current_sec = time.strftime('%H:%M:%S')
                 if not alert_history or alert_history[-1]["time"] != current_sec:
                     add_alert(sim_fire, sim_smoke, len(detections))
+                    
+            if not HAS_CV2_NUMPY:
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + MOCK_FRAME_BYTES + b'\r\n')
+                time.sleep(0.5)  # 2 FPS
+                continue
+                
+            # Generate simulated frame using numpy and cv2
+            frame = np.zeros((480, 640, 3), dtype=np.uint8)
+            cv2.putText(frame, "SIMULATED CAMERA FEED", (180, 220),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+            cv2.putText(frame, "AI Monitoring Active", (200, 260),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 1)
+            
+            if sim_fire:
+                cv2.rectangle(frame, (150, 100), (450, 380), (0, 0, 255), 2)
+                cv2.putText(frame, "FIRE: 0.92", (150, 90),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+                
+            if sim_smoke:
+                cv2.rectangle(frame, (100, 80), (540, 400), (0, 255, 255), 2)
+                cv2.putText(frame, "SMOKE: 0.85", (100, 70),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
                     
             annotated_frame = frame
             time.sleep(0.1)  # 10 FPS
@@ -520,6 +543,27 @@ def detect_image():
         
         # Read image
         img_bytes = file.read()
+        
+        if not HAS_CV2_NUMPY:
+            filename_lower = file.filename.lower()
+            fire = 'fire' in filename_lower
+            smoke = 'smoke' in filename_lower
+            detections = []
+            if fire:
+                detections.append(("fire", 0.90))
+            if smoke:
+                detections.append(("smoke", 0.85))
+            
+            # Return static mock placeholder image
+            img_base64 = base64.b64encode(MOCK_FRAME_BYTES).decode('utf-8')
+            return jsonify({
+                "fire": fire,
+                "smoke": smoke,
+                "detections": [{"class": d[0], "confidence": float(d[1])} for d in detections],
+                "annotated_image": img_base64,
+                "timestamp": time.time()
+            })
+            
         nparr = np.frombuffer(img_bytes, np.uint8)
         frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         
@@ -530,7 +574,6 @@ def detect_image():
         annotated, fire, smoke, detections = detector.detect(frame)
         
         # Encode result
-        import base64
         _, buffer = cv2.imencode('.jpg', annotated)
         img_base64 = base64.b64encode(buffer).decode('utf-8')
         

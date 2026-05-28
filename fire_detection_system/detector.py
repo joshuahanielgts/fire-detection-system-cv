@@ -1,5 +1,10 @@
-import cv2
-import numpy as np
+try:
+    import cv2
+    import numpy as np
+    HAS_CV2_NUMPY = True
+except ImportError:
+    HAS_CV2_NUMPY = False
+
 
 class FireSmokeDetector:
     """
@@ -19,6 +24,10 @@ class FireSmokeDetector:
         self.model = None
         self.using_yolo = False
         
+        if not HAS_CV2_NUMPY:
+            print("[INFO] cv2/numpy not available - running in mock mode")
+            return
+            
         # Try to load YOLOv8
         try:
             from ultralytics import YOLO
@@ -42,6 +51,9 @@ class FireSmokeDetector:
         Returns:
             tuple: (annotated_frame, fire_detected, smoke_detected, detections_list)
         """
+        if not HAS_CV2_NUMPY:
+            return frame, False, False, []
+            
         if self.using_yolo and self.model is not None:
             return self._detect_yolo(frame)
         else:
