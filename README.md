@@ -58,7 +58,7 @@ Since serverless environments (like Vercel AWS Lambda container) do not connect 
 - `requirements.txt` — Python packages to install during Vercel builds.
 - `package.json` — Workspace build runner.
 
---
+-
 
 ## ✨ Features
 
