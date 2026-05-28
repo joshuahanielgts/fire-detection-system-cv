@@ -2,7 +2,7 @@ import React, { useState, useEffect, useContext } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Video, Upload, AlertTriangle, Eye, Radio } from 'lucide-react'
 import { AuthContext } from '../App'
-import { startDetection, stopDetection, detectImage, fetchStatus } from '../services/api'
+import { startDetection, stopDetection, detectImage, fetchStatus, getLiveStreamUrl } from '../services/api'
 import '../styles/CameraManagement.css'
 
 export default function CameraManagement() {
@@ -157,7 +157,7 @@ export default function CameraManagement() {
 
             <div className={`video-container ${fireDetected ? 'fire-detected' : ''}`}>
               {liveStream ? (
-                <img src="/api/live_detection" alt="Live detection stream" className="video-player" />
+                <img src={getLiveStreamUrl()} alt="Live detection stream" className="video-player" />
               ) : annotatedImage ? (
                 <img src={annotatedImage} alt="Annotated detection result" className="video-player" />
               ) : filePreview ? (

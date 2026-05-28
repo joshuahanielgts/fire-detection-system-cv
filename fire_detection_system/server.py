@@ -35,19 +35,45 @@ app = Flask(
 )
 app.secret_key = os.getenv('FLASK_SECRET_KEY', 'fire-detection-secret-key-change-in-production')
 
+# Session cookie settings for cross-site requests (e.g. Vercel frontend + Render backend)
+is_deployed = (
+    os.getenv('RENDER', '').lower() == 'true' or
+    os.getenv('VERCEL') is not None or
+    os.getenv('ALLOWED_ORIGINS') is not None or
+    os.getenv('FLASK_ENV') == 'production'
+)
+if is_deployed:
+    app.config.update(
+        SESSION_COOKIE_SECURE=True,
+        SESSION_COOKIE_SAMESITE='None'
+    )
+    print("[Session] Deployed environment detected - Secure & SameSite=None session cookies enabled")
+
 # Enable CORS for frontend integration
+import re
 allowed_origins = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    "http://localhost:5174",
-    "http://127.0.0.1:5174"
+    re.compile(r"^http://localhost(:\d+)?$"),
+    re.compile(r"^http://127\.0\.0\.1(:\d+)?$"),
+    re.compile(r"^https://.*\.vercel\.app$")
 ]
 env_origins = os.getenv('ALLOWED_ORIGINS')
 if env_origins:
-    allowed_origins.extend([o.strip() for o in env_origins.split(',') if o.strip()])
+    for o in env_origins.split(','):
+        o_clean = o.strip()
+        if o_clean:
+            if o_clean.startswith('^') or '*' in o_clean:
+                pattern = o_clean.replace('.', r'\.').replace('*', '.*')
+                if not pattern.startswith('^'):
+                    pattern = '^' + pattern
+                if not pattern.endswith('$'):
+                    pattern = pattern + '$'
+                allowed_origins.append(re.compile(pattern))
+            else:
+                allowed_origins.append(re.compile(f"^{re.escape(o_clean)}$"))
 
 CORS(app, supports_credentials=True, origins=allowed_origins, expose_headers=["Content-Type", "Authorization"])
-print(f"[CORS] Enabled with allowed origins: {allowed_origins}")
+print(f"[CORS] Enabled with dynamic regex patterns: {allowed_origins}")
+
 
 
 # Configuration

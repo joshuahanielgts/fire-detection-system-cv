@@ -7,6 +7,7 @@ import CameraManagement from './pages/CameraManagement'
 import FireStationDashboard from './pages/FireStationDashboard'
 import FaceVerification from './pages/FaceVerification'
 import AddProperty from './pages/AddProperty'
+import { logout as apiLogout } from './services/api'
 import './App.css'
 
 export const AuthContext = createContext()
@@ -39,7 +40,7 @@ export default function App() {
 
   const handleLogout = async () => {
     try {
-      await fetch('/api/logout', { method: 'POST', credentials: 'include' })
+      await apiLogout()
     } catch (error) {
       console.warn('Backend logout failed', error)
     }

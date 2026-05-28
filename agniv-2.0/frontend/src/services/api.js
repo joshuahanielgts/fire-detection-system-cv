@@ -24,3 +24,10 @@ export const detectImage = (imageFile) => {
     headers: { 'Content-Type': 'multipart/form-data' }
   })
 }
+
+export const getLiveStreamUrl = () => {
+  const baseURL = import.meta.env.VITE_API_URL || '/api'
+  const cleanBase = baseURL.endsWith('/') ? baseURL.slice(0, -1) : baseURL
+  return `${cleanBase}/live_detection`
+}
+
