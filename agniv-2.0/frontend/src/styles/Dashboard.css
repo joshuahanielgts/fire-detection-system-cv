@@ -1,9 +1,10 @@
 .dashboard {
-  padding-top: 80px;
+  padding-top: 88px;
   padding-left: 24px;
   padding-right: 24px;
   max-width: 1400px;
   margin: 0 auto;
+  min-height: 100vh;
 }
 
 .dashboard-header {

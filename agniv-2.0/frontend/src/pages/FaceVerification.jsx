@@ -180,7 +180,7 @@ export default function FaceVerification() {
   }, []);
 
   return (
-    <div className="verify-container page-wrapper min-h-screen text-[#e0e0e0] flex items-center justify-center p-4">
+    <div className="face-verify-page page-wrapper min-h-screen text-[#e0e0e0] flex items-center justify-center p-4">
       <div className="auth-card glass-card w-full max-w-xl p-8 border border-white/10 rounded-xl relative">
         
         {/* Back Button */}

@@ -181,3 +181,8 @@
   padding: 24px;
   box-sizing: border-box;
 }
+
+main, .page-content, .dashboard, .camera-page,
+.add-property-page, .fire-station-page, .face-verify-page {
+  padding-top: 88px;
+}

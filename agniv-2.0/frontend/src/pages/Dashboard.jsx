@@ -100,7 +100,7 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="dashboard page-wrapper min-h-screen text-[#e0e0e0] flex flex-col gap-6">
+    <div className="dashboard">
 
       {/* Alert Banner */}
       {status.alert_active && (

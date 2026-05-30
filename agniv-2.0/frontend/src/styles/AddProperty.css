@@ -1,10 +1,7 @@
-.add-property-container {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 90vh;
-  padding: 24px;
-  padding-top: 80px;
+.add-property-page {
+  padding-top: 88px;
+  padding-left: 24px;
+  padding-right: 24px;
 }
 
 .add-property-card {
