@@ -1,39 +1,44 @@
-import React, { useState, useContext, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { Shield, Mail, Lock } from 'lucide-react'
-import { AuthContext } from '../App'
-import { login as apiLogin } from '../services/api'
-import '../styles/Auth.css'
+import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../App';
+import { loginUser } from '../services/api';
+import '../styles/Auth.css';
 
 export default function Login() {
-  const navigate = useNavigate()
-  const { handleLogin, isAuthenticated } = useContext(AuthContext)
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [loading, setLoading] = useState(false)
-
-  useEffect(() => {
-    if (isAuthenticated) {
-      navigate('/dashboard')
-    }
-  }, [isAuthenticated, navigate])
+  const navigate = useNavigate();
+  const auth = useAuth();
+  
+  const [email, setEmail] = useState('');
+  const [name, setName] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
   const handleSubmit = async (e) => {
-    e.preventDefault()
-    setLoading(true)
+    e.preventDefault();
+    setLoading(false);
+    setError('');
 
-    try {
-      const response = await apiLogin(email, password)
-      const user = response.data.user
-      handleLogin(user)
-      navigate('/dashboard')
-    } catch (error) {
-      const message = error?.response?.data?.error || 'Login failed. Please try again.'
-      alert(message)
-    } finally {
-      setLoading(false)
+    if (!email) {
+      setError('Email is required');
+      return;
     }
-  }
+
+    setLoading(true);
+    try {
+      const result = await loginUser(email, name);
+      if (result.success && result.user) {
+        auth.login(result.user);
+        navigate('/dashboard');
+      } else {
+        setError('Login failed. Please try again.');
+      }
+    } catch (err) {
+      console.error(err);
+      setError(err?.response?.data?.error || 'Login failed. Connection refused.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <div className="auth-container">
@@ -42,51 +47,66 @@ export default function Login() {
 
       <div className="auth-card glass-card">
         <div className="auth-header">
-          <Shield className="auth-icon" />
-          <h1>Agniv2.0</h1>
-          <p>Fire Detection & Emergency Response System</p>
+          <div style={{ fontSize: '4.5rem', marginBottom: '1rem', textAlign: 'center' }}>🔥</div>
+          <h1>Agniv 2.0</h1>
+          <p>AI Fire & Smoke Detection</p>
         </div>
+
+        {error && (
+          <div 
+            style={{ 
+              backgroundColor: 'rgba(239, 68, 68, 0.15)', 
+              border: '1px solid rgba(239, 68, 68, 0.3)', 
+              color: '#ef4444', 
+              padding: '10px 14px', 
+              borderRadius: '8px', 
+              fontSize: '0.875rem', 
+              marginBottom: '1.5rem' 
+            }}
+          >
+            {error}
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="auth-form">
           <div className="form-group">
             <label htmlFor="email">Email Address</label>
-            <div className="input-wrapper">
-              <Mail className="input-icon" />
+            <div className="input-wrapper" style={{ display: 'block' }}>
               <input
                 id="email"
                 type="email"
-                placeholder="you@example.com"
+                placeholder="Enter any email — no verification needed"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
+                style={{ paddingLeft: '16px' }}
               />
             </div>
           </div>
 
           <div className="form-group">
-            <label htmlFor="password">Password</label>
-            <div className="input-wrapper">
-              <Lock className="input-icon" />
+            <label htmlFor="name">Name (Optional)</label>
+            <div className="input-wrapper" style={{ display: 'block' }}>
               <input
-                id="password"
-                type="password"
-                placeholder="••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
+                id="name"
+                type="text"
+                placeholder="Enter your name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                style={{ paddingLeft: '16px' }}
               />
             </div>
           </div>
 
           <button type="submit" className="btn btn-primary" disabled={loading}>
-            {loading ? 'Signing in...' : 'Sign In'}
+            {loading ? 'Signing In...' : 'Sign In →'}
           </button>
         </form>
 
         <div className="auth-footer">
-          <p>Demo credentials: use any email and password to login</p>
+          <p>Any email works. No verification required.</p>
         </div>
       </div>
     </div>
-  )
+  );
 }

@@ -1,34 +1,12 @@
-try:
-    import cv2
-    import numpy as np
-    HAS_CV2_NUMPY = True
-except ImportError:
-    HAS_CV2_NUMPY = False
-
+import os
+import cv2
+import numpy as np
 
 class FireSmokeDetector:
-    """
-    Fire and Smoke Detection class.
-    Uses YOLOv8 if available, otherwise falls back to color-based detection.
-    """
-
-    def __init__(self, model_path='yolov8n.pt', conf_threshold=0.6):
-        """
-        Initialize the detector.
-
-        Args:
-            model_path (str): Path to the YOLO model weights file
-            conf_threshold (float): Confidence threshold for detections
-        """
-        self.conf_threshold = conf_threshold
+    def __init__(self, model_path=None):
+        self.yolo_available = False
         self.model = None
-        self.using_yolo = False
         
-        if not HAS_CV2_NUMPY:
-            print("[INFO] cv2/numpy not available - running in mock mode")
-            return
-            
-        # Try to load YOLOv8
         try:
             import torch
             # Monkey-patch torch.load to disable default weights_only in PyTorch 2.6+
@@ -39,148 +17,197 @@ class FireSmokeDetector:
                         kwargs['weights_only'] = False
                     return _orig_load(*args, **kwargs)
                 torch.load = _patched_load
-
+                
             from ultralytics import YOLO
-            self.model = YOLO(model_path)
-            self.using_yolo = True
-            print(f"[OK] YOLO model loaded: {model_path}")
-        except ImportError:
-            print("[INFO] ultralytics not installed - using color-based detection fallback")
-            print("[INFO] For AI detection: pip install ultralytics torch")
-        except Exception as e:
-            print(f"[WARN] Could not load YOLO model: {e}")
-            print("[INFO] Using color-based detection fallback")
+            
+            # Paths to try in order:
+            # 1. model_path argument
+            # 2. ./fire_detection_system/yolov8n.pt
+            # 3. ./yolov8n.pt
+            # 4. Auto-download yolov8n.pt
+            paths_to_try = []
+            if model_path:
+                paths_to_try.append(model_path)
+            paths_to_try.append('./fire_detection_system/yolov8n.pt')
+            paths_to_try.append('./yolov8n.pt')
+            
+            loaded = False
+            for path in paths_to_try:
+                if os.path.exists(path):
+                    try:
+                        self.model = YOLO(path)
+                        loaded = True
+                        break
+                    except Exception:
+                        pass
+            
+            if not loaded:
+                # This will download yolov8n.pt to current directory
+                self.model = YOLO('yolov8n.pt')
+                
+            self.yolo_available = True
+        except (ImportError, Exception):
+            self.yolo_available = False
 
     def detect(self, frame):
         """
-        Perform detection on a single frame.
-
-        Args:
-            frame: Input frame from webcam (BGR numpy array)
-
-        Returns:
-            tuple: (annotated_frame, fire_detected, smoke_detected, detections_list)
+        Takes a BGR numpy frame.
+        If yolo_available, run _detect_yolo.
+        Else run _detect_hsv.
+        Return tuple: (annotated_frame, detections_list, alert_bool)
         """
-        if not HAS_CV2_NUMPY:
-            return frame, False, False, []
-            
-        if self.using_yolo and self.model is not None:
+        if self.yolo_available:
             return self._detect_yolo(frame)
         else:
-            return self._detect_color(frame)
+            return self._detect_hsv(frame)
 
     def _detect_yolo(self, frame):
-        """YOLOv8-based detection"""
-        results = self.model(frame, conf=self.conf_threshold, verbose=False)
-
-        fire_detected = False
-        smoke_detected = False
-        detections = []
-
-        for result in results:
-            boxes = result.boxes
+        """
+        Run YOLO inference (verbose=False).
+        For each detection, check if label contains "fire" or "smoke" with conf > 0.3.
+        Draw colored bounding boxes (fire=orange-red BGR, smoke=gray BGR).
+        If no fire/smoke labels found (general yolov8n), fall through to _detect_hsv.
+        Return (annotated, detections_list, alert_bool).
+        detections_list items: {label, confidence, bbox:[x1,y1,x2,y2]}
+        """
+        annotated = frame.copy()
+        detections_list = []
+        alert_bool = False
+        
+        try:
+            results = self.model(frame, verbose=False)
+        except Exception:
+            # If YOLO inference fails, fall back to HSV
+            return self._detect_hsv(frame)
+            
+        for r in results:
+            boxes = r.boxes
             if boxes is not None:
                 for box in boxes:
-                    x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+                    # Get confidence, class index
                     conf = float(box.conf[0].cpu().numpy())
                     cls = int(box.cls[0].cpu().numpy())
-
-                    if isinstance(self.model.names, dict):
-                        class_name = self.model.names.get(cls, f'class_{cls}')
+                    
+                    # Map class to label
+                    if hasattr(self.model, 'names') and cls in self.model.names:
+                        label = self.model.names[cls]
                     else:
-                        class_name = str(self.model.names[cls]) if cls < len(self.model.names) else f'class_{cls}'
+                        label = f"class_{cls}"
+                        
+                    label_lower = label.lower()
+                    if ("fire" in label_lower or "smoke" in label_lower) and conf > 0.3:
+                        # Bounding box coordinates
+                        x1, y1, x2, y2 = map(int, box.xyxy[0].cpu().numpy().tolist())
+                        
+                        # Colors: fire = orange-red BGR (0, 69, 255), smoke = gray BGR (128, 128, 128)
+                        if "fire" in label_lower:
+                            color = (0, 69, 255)
+                        else:
+                            color = (128, 128, 128)
+                            
+                        # Draw bounding box and text label
+                        cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
+                        text = f"{label}: {conf:.2f}"
+                        cv2.putText(annotated, text, (x1, max(y1 - 5, 15)),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+                                    
+                        detections_list.append({
+                            "label": label,
+                            "confidence": conf,
+                            "bbox": [x1, y1, x2, y2]
+                        })
+                        alert_bool = True
 
-                    detections.append((class_name, conf))
+        # If no fire/smoke labels found, fall through to _detect_hsv
+        if not detections_list:
+            return self._detect_hsv(frame)
+            
+        return annotated, detections_list, alert_bool
 
-                    class_lower = class_name.lower()
-                    if 'fire' in class_lower:
-                        color = (0, 0, 255)
-                        fire_detected = True
-                    elif 'smoke' in class_lower:
-                        color = (0, 255, 255)
-                        smoke_detected = True
-                    else:
-                        color = (0, 255, 0)
-
-                    cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), color, 2)
-                    label = f"{class_name}: {conf:.2f}"
-                    label_size, _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
-                    cv2.rectangle(frame,
-                                  (int(x1), int(y1) - label_size[1] - 10),
-                                  (int(x1) + label_size[0], int(y1)),
-                                  color, -1)
-                    cv2.putText(frame, label, (int(x1), int(y1) - 5),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-
-        return frame, fire_detected, smoke_detected, detections
-
-    def _detect_color(self, frame):
-        """Fallback color-based fire/smoke detection"""
-        fire_detected = False
-        smoke_detected = False
-        detections = []
-
-        # Convert to HSV for better color detection
+    def _detect_hsv(self, frame):
+        """
+        Convert to HSV.
+        Fire mask: hue 0-20 + 160-180, sat 60-255, val 60-255.
+        Smoke mask: hue 0-180, sat 0-40, val 80-210.
+        Apply morphological open+dilate cleanup.
+        Find contours, skip area < 800.
+        Draw bounding boxes.
+        Confidence = min(area/15000, 0.95).
+        Return (annotated, detections_list, alert_bool)
+        """
+        annotated = frame.copy()
+        detections_list = []
+        alert_bool = False
+        
+        # Convert to HSV
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         
-        # Fire detection - red/orange/yellow colors
-        # Lower red range
-        lower_fire1 = np.array([0, 100, 100])
-        upper_fire1 = np.array([10, 255, 255])
-        mask_fire1 = cv2.inRange(hsv, lower_fire1, upper_fire1)
-        
-        # Upper red range
-        lower_fire2 = np.array([160, 100, 100])
+        # Fire mask (combines two Hue ranges: 0-20 and 160-180)
+        lower_fire1 = np.array([0, 60, 60])
+        upper_fire1 = np.array([20, 255, 255])
+        lower_fire2 = np.array([160, 60, 60])
         upper_fire2 = np.array([180, 255, 255])
+        
+        mask_fire1 = cv2.inRange(hsv, lower_fire1, upper_fire1)
         mask_fire2 = cv2.inRange(hsv, lower_fire2, upper_fire2)
-        
-        # Orange/yellow range
-        lower_fire3 = np.array([10, 100, 100])
-        upper_fire3 = np.array([35, 255, 255])
-        mask_fire3 = cv2.inRange(hsv, lower_fire3, upper_fire3)
-        
-        # Combine fire masks
         fire_mask = cv2.bitwise_or(mask_fire1, mask_fire2)
-        fire_mask = cv2.bitwise_or(fire_mask, mask_fire3)
         
-        # Smoke detection - gray/white colors
-        lower_smoke = np.array([0, 0, 150])
-        upper_smoke = np.array([180, 50, 255])
+        # Smoke mask: hue 0-180, sat 0-40, val 80-210
+        lower_smoke = np.array([0, 0, 80])
+        upper_smoke = np.array([180, 40, 210])
         smoke_mask = cv2.inRange(hsv, lower_smoke, upper_smoke)
-
-        # Find fire contours
+        
+        # Cleanup masks with morphological open (remove noise) and dilate (fill gaps)
+        kernel = np.ones((5, 5), np.uint8)
+        
+        fire_mask = cv2.morphologyEx(fire_mask, cv2.MORPH_OPEN, kernel)
+        fire_mask = cv2.dilate(fire_mask, kernel, iterations=1)
+        
+        smoke_mask = cv2.morphologyEx(smoke_mask, cv2.MORPH_OPEN, kernel)
+        smoke_mask = cv2.dilate(smoke_mask, kernel, iterations=1)
+        
+        # Find external contours
         fire_contours, _ = cv2.findContours(fire_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        smoke_contours, _ = cv2.findContours(smoke_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        # Process fire contours
         for cnt in fire_contours:
             area = cv2.contourArea(cnt)
-            if area > 500:  # Minimum area threshold
-                x, y, w, h = cv2.boundingRect(cnt)
-                conf = min(area / 5000, 0.95)  # Fake confidence based on area
-                if conf >= self.conf_threshold:
-                    cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 0, 255), 2)
-                    label = f"fire: {conf:.2f}"
-                    cv2.putText(frame, label, (x, y - 5),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
-                    detections.append(("fire", conf))
-                    fire_detected = True
-
-        # Find smoke contours
-        smoke_contours, _ = cv2.findContours(smoke_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            if area < 800:
+                continue
+            x, y, w, h = cv2.boundingRect(cnt)
+            conf = min(area / 15000.0, 0.95)
+            color = (0, 69, 255) # orange-red BGR
+            
+            cv2.rectangle(annotated, (x, y), (x + w, y + h), color, 2)
+            cv2.putText(annotated, f"fire: {conf:.2f}", (x, max(y - 5, 15)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+                        
+            detections_list.append({
+                "label": "fire",
+                "confidence": conf,
+                "bbox": [x, y, x + w, y + h]
+            })
+            alert_bool = True
+            
+        # Process smoke contours
         for cnt in smoke_contours:
             area = cv2.contourArea(cnt)
-            if area > 1000:
-                x, y, w, h = cv2.boundingRect(cnt)
-                conf = min(area / 10000, 0.90)
-                if conf >= self.conf_threshold:
-                    cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 255), 2)
-                    label = f"smoke: {conf:.2f}"
-                    cv2.putText(frame, label, (x, y - 5),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
-                    detections.append(("smoke", conf))
-                    smoke_detected = True
-
-        # Add fallback indicator
-        cv2.putText(frame, "[FALLBACK MODE - Color Detection]", (10, frame.shape[0] - 10),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-
-        return frame, fire_detected, smoke_detected, detections
-
+            if area < 800:
+                continue
+            x, y, w, h = cv2.boundingRect(cnt)
+            conf = min(area / 15000.0, 0.95)
+            color = (128, 128, 128) # gray BGR
+            
+            cv2.rectangle(annotated, (x, y), (x + w, y + h), color, 2)
+            cv2.putText(annotated, f"smoke: {conf:.2f}", (x, max(y - 5, 15)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+                        
+            detections_list.append({
+                "label": "smoke",
+                "confidence": conf,
+                "bbox": [x, y, x + w, y + h]
+            })
+            alert_bool = True
+            
+        return annotated, detections_list, alert_bool

@@ -1,182 +1,183 @@
-import React, { useState, useContext } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, MapPin, Lock, Home } from 'lucide-react'
-import { AuthContext } from '../App'
-import { addProperty } from '../services/api'
-import '../styles/AddProperty.css'
+import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { createProperty } from '../services/api';
+import { Building, MapPin, Navigation, Lock, ArrowLeft } from 'lucide-react';
 
 export default function AddProperty() {
-  const navigate = useNavigate()
-  const { handleLogout } = useContext(AuthContext)
+  const navigate = useNavigate();
   const [formData, setFormData] = useState({
+    name: '',
     address: '',
-    password: '',
-    coordinates: ''
-  })
-  const [selectedLocation, setSelectedLocation] = useState('')
-  const [showMapPicker, setShowMapPicker] = useState(false)
-  const [saving, setSaving] = useState(false)
+    lat: '',
+    lng: '',
+    password: ''
+  });
+  const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
 
-  const handleInputChange = (e) => {
-    const { name, value } = e.target
-    setFormData((prev) => ({
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({
       ...prev,
       [name]: value
-    }))
-  }
+    }));
+  };
 
-  const handleSelectLocation = () => {
-    const location = '9.7557, 76.6487'
-    setSelectedLocation(location)
-    setFormData((prev) => ({
-      ...prev,
-      coordinates: location
-    }))
-    setShowMapPicker(false)
-  }
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setErrorMsg('');
 
-  const handleAddProperty = async (e) => {
-    e.preventDefault()
-    if (!formData.address || !formData.password || !selectedLocation) {
-      alert('Please fill all fields and select a location')
-      return
+    if (!formData.name || !formData.address) {
+      setErrorMsg('Property name and address are required.');
+      return;
     }
 
-    setSaving(true)
+    setLoading(true);
     try {
-      await addProperty(formData)
-      navigate('/dashboard')
-    } catch (error) {
-      const message = error?.response?.data?.error || 'Failed to add property.'
-      alert(message)
+      const payload = {
+        name: formData.name,
+        address: formData.address,
+        lat: formData.lat ? parseFloat(formData.lat) : 0,
+        lng: formData.lng ? parseFloat(formData.lng) : 0,
+        password: formData.password || ''
+      };
+
+      await createProperty(payload);
+      navigate('/dashboard');
+    } catch (err) {
+      console.error('Failed to create property', err);
+      setErrorMsg(err?.response?.data?.error || 'Failed to register property. Please check your inputs.');
     } finally {
-      setSaving(false)
+      setLoading(false);
     }
-  }
+  };
 
   return (
-    <div className="add-property-container">
-      <div className="property-orb orb-1"></div>
-      <div className="property-orb orb-2"></div>
-
-      <header className="property-header">
-        <button className="btn-icon" onClick={() => navigate('/dashboard')}>
-          <ArrowLeft className="w-5 h-5" />
+    <div className="page-wrapper min-h-screen text-[#e0e0e0] flex items-center justify-center py-12 px-4">
+      <div className="auth-card glass-card w-full max-w-lg p-8 relative border border-white/10 rounded-xl">
+        
+        {/* Back Button */}
+        <button 
+          onClick={() => navigate('/dashboard')}
+          className="btn-ghost p-2 mb-6 text-sm flex items-center gap-1.5 border-none hover:bg-white/5"
+          style={{ padding: '6px 12px' }}
+        >
+          <ArrowLeft size={16} /> Back to Dashboard
         </button>
-        <h1>Add New Property</h1>
-        <button className="btn-icon" onClick={() => { handleLogout(); navigate('/'); }}>
-          ✕
-        </button>
-      </header>
 
-      <div className="property-content">
-        <div className="property-card glass-card">
-          <form onSubmit={handleAddProperty} className="property-form">
-            <div className="form-icon">
-              <Home className="w-12 h-12" />
-            </div>
-
-            <h2>Property Details</h2>
-
-            <div className="form-group">
-              <label htmlFor="address">Property Address</label>
-              <div className="input-wrapper">
-                <MapPin className="input-icon" />
-                <input
-                  id="address"
-                  type="text"
-                  name="address"
-                  placeholder="Enter property address"
-                  value={formData.address}
-                  onChange={handleInputChange}
-                  required
-                />
-              </div>
-            </div>
-
-            <button
-              type="button"
-              className="btn btn-secondary location-picker-btn"
-              onClick={() => setShowMapPicker(true)}
-            >
-              <MapPin className="w-4 h-4" />
-              Select Location on Map
-            </button>
-
-            {selectedLocation && (
-              <div className="selected-location">
-                <div className="location-badge-lg">
-                  <MapPin className="w-5 h-5" />
-                  <span>{selectedLocation}</span>
-                </div>
-              </div>
-            )}
-
-            <div className="form-group">
-              <label htmlFor="password">Monitor Password</label>
-              <div className="input-wrapper">
-                <Lock className="input-icon" />
-                <input
-                  id="password"
-                  type="password"
-                  name="password"
-                  placeholder="Set a secure password"
-                  value={formData.password}
-                  onChange={handleInputChange}
-                  required
-                />
-              </div>
-              <p className="hint-text">This password will be used by monitors to access cameras</p>
-            </div>
-
-            <div className="fire-station-info">
-              <div className="info-icon">
-                <Home className="w-5 h-5" />
-              </div>
-              <div className="info-text">
-                <p className="label">Fire Station</p>
-                <p className="value">Auto-assigned to nearest station</p>
-                <p className="description">Central Fire Station • 2.5 km away</p>
-              </div>
-            </div>
-
-            <button type="submit" className="btn btn-primary submit-btn" disabled={saving}>
-              <Home className="w-5 h-5" />
-              {saving ? 'Adding Property...' : 'Add Property'}
-            </button>
-          </form>
+        {/* Form Header */}
+        <div className="text-center mb-8">
+          <div className="p-3 bg-fire-500/10 border border-fire-500/20 rounded-xl w-fit mx-auto mb-3">
+            <Building className="text-fire-500 w-8 h-8" />
+          </div>
+          <h2 className="text-2xl font-bold text-white">Add Monitored Property</h2>
+          <p className="text-sm text-[#888] mt-1">Configure a new facility node for live AI detection</p>
         </div>
 
-        {showMapPicker && (
-          <div className="map-picker-overlay" onClick={() => setShowMapPicker(false)}>
-            <div className="map-picker-modal glass-card" onClick={(e) => e.stopPropagation()}>
-              <div className="modal-header">
-                <h3>Select Property Location</h3>
-                <button className="btn-icon-small" onClick={() => setShowMapPicker(false)}>
-                  ✕
-                </button>
-              </div>
-
-              <div className="map-container">
-                <div className="map-placeholder">
-                  <MapPin className="w-24 h-24 text-orange-400" />
-                  <p>Click to select location</p>
-                  <p className="text-sm">Simulated map view</p>
-                </div>
-              </div>
-
-              <div className="modal-footer">
-                <button type="button" className="btn btn-secondary" onClick={() => setShowMapPicker(false)}>
-                  Cancel
-                </button>
-                <button type="button" className="btn btn-primary" onClick={handleSelectLocation}>
-                  Confirm Location
-                </button>
-              </div>
-            </div>
+        {errorMsg && (
+          <div className="p-4 bg-red-500/15 border border-red-500/30 text-red-500 rounded-lg text-sm mb-6">
+            {errorMsg}
           </div>
         )}
+
+        <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+          {/* Property Name */}
+          <div className="form-group flex flex-col gap-1.5">
+            <label htmlFor="name" className="text-sm font-semibold text-gray-300">Property Name *</label>
+            <div className="relative">
+              <input
+                id="name"
+                name="name"
+                type="text"
+                placeholder="e.g. Headquarters Office, Warehouse 3"
+                value={formData.name}
+                onChange={handleChange}
+                required
+                className="w-full bg-white/5 border border-white/10 rounded-lg py-2.5 px-4 text-white placeholder-white/20 focus:outline-none focus:border-fire-500 transition"
+              />
+            </div>
+          </div>
+
+          {/* Address */}
+          <div className="form-group flex flex-col gap-1.5">
+            <label htmlFor="address" className="text-sm font-semibold text-gray-300">Address *</label>
+            <div className="relative">
+              <input
+                id="address"
+                name="address"
+                type="text"
+                placeholder="e.g. 123 Industrial Parkway, Suite A"
+                value={formData.address}
+                onChange={handleChange}
+                required
+                className="w-full bg-white/5 border border-white/10 rounded-lg py-2.5 px-4 text-white placeholder-white/20 focus:outline-none focus:border-fire-500 transition"
+              />
+            </div>
+          </div>
+
+          {/* Coordinates (Latitude & Longitude) */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="form-group flex flex-col gap-1.5">
+              <label htmlFor="lat" className="text-sm font-semibold text-gray-300">Latitude</label>
+              <input
+                id="lat"
+                name="lat"
+                type="number"
+                step="any"
+                placeholder="e.g. 13.0827"
+                value={formData.lat}
+                onChange={handleChange}
+                className="w-full bg-white/5 border border-white/10 rounded-lg py-2.5 px-4 text-white placeholder-white/20 focus:outline-none focus:border-fire-500 transition"
+              />
+            </div>
+
+            <div className="form-group flex flex-col gap-1.5">
+              <label htmlFor="lng" className="text-sm font-semibold text-gray-300">Longitude</label>
+              <input
+                id="lng"
+                name="lng"
+                type="number"
+                step="any"
+                placeholder="e.g. 80.2707"
+                value={formData.lng}
+                onChange={handleChange}
+                className="w-full bg-white/5 border border-white/10 rounded-lg py-2.5 px-4 text-white placeholder-white/20 focus:outline-none focus:border-fire-500 transition"
+              />
+            </div>
+          </div>
+
+          {/* Coordinate Picker Note */}
+          <div className="p-3 bg-white/5 border border-white/5 rounded-lg text-xs text-[#888] flex items-start gap-2 leading-relaxed">
+            <Navigation size={14} className="text-fire-500 flex-shrink-0 mt-0.5" />
+            <div>
+              <strong>Pro-tip:</strong> Use Google Maps to pin your location, copy the coordinates, and paste them above for exact mapping on the responder dashboard.
+            </div>
+          </div>
+
+          {/* Access Password */}
+          <div className="form-group flex flex-col gap-1.5">
+            <label htmlFor="password" className="text-sm font-semibold text-gray-300">Access Password (Optional)</label>
+            <input
+              id="password"
+              name="password"
+              type="password"
+              placeholder="Leave blank for public access"
+              value={formData.password}
+              onChange={handleChange}
+              className="w-full bg-white/5 border border-white/10 rounded-lg py-2.5 px-4 text-white placeholder-white/20 focus:outline-none focus:border-fire-500 transition"
+            />
+          </div>
+
+          {/* Submit Button */}
+          <button
+            type="submit"
+            disabled={loading}
+            className="btn-primary w-full py-3 mt-4 bg-gradient-to-r from-fire-500 to-fire-600 hover:from-fire-600 hover:to-fire-500 transition-all font-bold"
+          >
+            {loading ? 'Registering Facility...' : 'Add Property'}
+          </button>
+        </form>
       </div>
     </div>
-  )
+  );
 }

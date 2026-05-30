@@ -1,707 +1,348 @@
-"""
-AI Fire & Smoke Detection System - Unified Server
-Production-ready Flask backend with Google OAuth, live streaming, and REST API
-"""
-
-from flask import Flask, render_template, request, redirect, url_for, Response, jsonify, session, flash
-from detector import FireSmokeDetector
-import time
 import os
 import base64
-
-try:
-    import cv2
-    import numpy as np
-    HAS_CV2_NUMPY = True
-except ImportError:
-    HAS_CV2_NUMPY = False
-
-MOCK_FRAME_BYTES = base64.b64decode(
-    "/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA="
-)
+import datetime
+import uuid
+import threading
+import cv2
+import numpy as np
+from flask import Flask, request, jsonify, session
+from flask_cors import CORS
+from flask_socketio import SocketIO, emit
+from detector import FireSmokeDetector
 from dotenv import load_dotenv
-from functools import wraps
 
 # Load environment variables
 load_dotenv()
 
-from flask_cors import CORS
+# Initialize Flask app
+app = Flask(__name__)
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-app = Flask(
-    __name__,
-    template_folder=os.path.join(BASE_DIR, 'templates'),
-    static_folder=os.path.join(BASE_DIR, 'static')
-)
-app.secret_key = os.getenv('FLASK_SECRET_KEY', 'fire-detection-secret-key-change-in-production')
+# Session Configuration
+app.config['SESSION_COOKIE_SAMESITE'] = 'None'
+app.config['SESSION_COOKIE_SECURE'] = True
+app.secret_key = os.getenv("SECRET_KEY", "agniv-2-secret-key-fallback")
 
-# Session cookie settings for cross-site requests (e.g. Vercel frontend + Render backend)
-is_deployed = (
-    os.getenv('RENDER', '').lower() == 'true' or
-    os.getenv('VERCEL') is not None or
-    os.getenv('ALLOWED_ORIGINS') is not None or
-    os.getenv('FLASK_ENV') == 'production'
-)
-if is_deployed:
-    app.config.update(
-        SESSION_COOKIE_SECURE=True,
-        SESSION_COOKIE_SAMESITE='None'
-    )
-    print("[Session] Deployed environment detected - Secure & SameSite=None session cookies enabled")
-
-# Enable CORS for frontend integration
-import re
-allowed_origins = [
-    re.compile(r"^http://localhost(:\d+)?$"),
-    re.compile(r"^http://127\.0\.0\.1(:\d+)?$"),
-    re.compile(r"^https://.*\.vercel\.app$")
+# CORS Configuration
+origins = [
+    "http://localhost:5173", 
+    "http://localhost:3000", 
+    "http://127.0.0.1:5173",
+    "https://localhost:5173",
+    "https://localhost:3000",
+    "https://127.0.0.1:5173",
+    "localhost:5173",
+    "localhost:3000",
+    "127.0.0.1:5173"
 ]
-env_origins = os.getenv('ALLOWED_ORIGINS')
-if env_origins:
-    for o in env_origins.split(','):
-        o_clean = o.strip()
-        if o_clean:
-            if o_clean.startswith('^') or '*' in o_clean:
-                pattern = o_clean.replace('.', r'\.').replace('*', '.*')
-                if not pattern.startswith('^'):
-                    pattern = '^' + pattern
-                if not pattern.endswith('$'):
-                    pattern = pattern + '$'
-                allowed_origins.append(re.compile(pattern))
-            else:
-                allowed_origins.append(re.compile(f"^{re.escape(o_clean)}$"))
+allowed_origins_env = os.getenv("ALLOWED_ORIGINS")
+if allowed_origins_env:
+    for origin in allowed_origins_env.split(","):
+        origin = origin.strip()
+        if origin:
+            origins.append(origin)
 
-CORS(app, supports_credentials=True, origins=allowed_origins, expose_headers=["Content-Type", "Authorization"])
-print(f"[CORS] Enabled with dynamic regex patterns: {allowed_origins}")
+# Setup CORS with app
+CORS(app, supports_credentials=True, origins=origins)
 
+# Setup SocketIO
+socketio = SocketIO(app, cors_allowed_origins=origins, async_mode="eventlet")
 
+# In-Memory Storage
+properties = {}
+alerts = []  # capped at 200
 
-# Configuration
-GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID')
-CONFIDENCE_THRESHOLD = float(os.getenv('CONFIDENCE_THRESHOLD', '0.6'))
-
-# Demo credentials for local login
-USERS = {
-    'admin': 'admin123',
-    'user': 'user123'
+# Detection State
+detection_state = {
+    "running": False,
+    "fps": 0.0,
+    "alert_active": False,
+    "detections": []
 }
 
-# Global state
-detector = None
-camera = None
-is_detecting = False
-is_mock_camera = False
-fps_counter = 0
-fps_start_time = time.time()
-current_fps = 0.0
-last_detection_result = {"fire": False, "smoke": False, "timestamp": None}
-alert_history = []
+# Lazy Loaded Detector with threading Lock
+_detector = None
+_detector_lock = threading.Lock()
 
-properties = [
-    {
-        "id": 1,
-        "name": "IIIT Kottayam Hackathon Hall",
-        "address": "IIIT Kottayam Hackathon Hall",
-        "coordinates": "9.7557, 76.6487",
-        "cameras": 1,
-        "status": "active"
-    },
-    {
-        "id": 2,
-        "name": "Elliot's Beach Promenade",
-        "address": "Elliot's Beach Promenade, Desart Nagar, Chennai",
-        "coordinates": "13.0010, 80.2680",
-        "cameras": 1,
-        "status": "active"
-    },
-    {
-        "id": 3,
-        "name": "Velachery Residential Zone",
-        "address": "100 Feet Bypass Road, Velachery, Chennai",
-        "coordinates": "12.9810, 80.2180",
-        "cameras": 0,
-        "status": "inactive"
-    }
-]
-next_property_id = 4
+def get_detector():
+    global _detector
+    if _detector is None:
+        with _detector_lock:
+            if _detector is None:
+                _detector = FireSmokeDetector()
+    return _detector
 
 
-def get_property_by_id(prop_id):
-    return next((prop for prop in properties if prop["id"] == prop_id), None)
-
-
-def init_detector():
-    """Initialize the YOLO detector"""
-    global detector
-    if detector is None:
-        try:
-            model_path = os.path.join(BASE_DIR, 'yolov8n.pt')
-            detector = FireSmokeDetector(model_path=model_path, conf_threshold=CONFIDENCE_THRESHOLD)
-            print("[OK] Detector initialized")
-            return True
-        except Exception as e:
-            print(f"[ERROR] Detector init failed: {e}")
-            return False
-    return True
-
-
-def init_camera():
-    """Initialize webcam, fallback to mock camera if unavailable"""
-    global camera, is_mock_camera
-    is_mock_camera = False
-    if not HAS_CV2_NUMPY:
-        print("[INFO] No OpenCV/NumPy - using simulated camera feed")
-        is_mock_camera = True
-        return True
-    if camera is None or not camera.isOpened():
-        # Try multiple camera indices (0, 1, 2)
-        for index in [0, 1, 2]:
-            try:
-                # Try DirectShow on Windows first (much more stable/faster)
-                if os.name == 'nt':
-                    print(f"[INFO] Attempting to open camera index {index} with CAP_DSHOW on Windows...")
-                    camera = cv2.VideoCapture(index, cv2.CAP_DSHOW)
-                else:
-                    print(f"[INFO] Attempting to open camera index {index}...")
-                    camera = cv2.VideoCapture(index)
-                
-                # Fallback to standard capture if CAP_DSHOW failed or not on Windows
-                if camera is None or not camera.isOpened():
-                    camera = cv2.VideoCapture(index)
-                    
-                if camera is not None and camera.isOpened():
-                    print(f"[OK] Camera opened successfully at index {index}")
-                    return True
-            except Exception as e:
-                print(f"[WARN] Failed to open camera at index {index}: {e}")
-                
-        print("[INFO] Physical camera failed to open on all indices - using simulated camera feed")
-        is_mock_camera = True
-        return True
-    return True
-
-
-def login_required(f):
-    """Decorator to require authentication"""
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if 'user' not in session:
-            # Allow dev mode bypass
-            if os.getenv('DEV_MODE', 'false').lower() == 'true':
-                session['user'] = {'name': 'Developer', 'email': 'dev@localhost'}
-                return f(*args, **kwargs)
-            # Check if this is an API route or expects JSON
-            if request.path.startswith('/api/') or request.is_json or 'application/json' in request.headers.get('Accept', ''):
-                return jsonify({"error": "Unauthorized", "authenticated": False}), 401
-            return redirect(url_for('login'))
-        return f(*args, **kwargs)
-    return decorated_function
-
-
-def generate_video_stream():
-    """Generate MJPEG stream for live video"""
-    global is_detecting, fps_counter, fps_start_time, current_fps, last_detection_result, is_mock_camera, camera
-    
-    frame_count = 0
-    local_fps_time = time.time()
-    
-    while is_detecting:
-        if is_mock_camera:
-            # Simulate periodic fire/smoke detection alerts
-            t = time.time()
-            sim_fire = (int(t) // 10) % 3 == 1
-            sim_smoke = (int(t) // 10) % 3 == 2
-            
-            detections = []
-            if sim_fire:
-                detections.append(("fire", 0.92))
-            if sim_smoke:
-                detections.append(("smoke", 0.85))
-                
-            last_detection_result = {
-                "fire": sim_fire,
-                "smoke": sim_smoke,
-                "timestamp": time.time(),
-                "detections": len(detections)
-            }
-            
-            if sim_fire or sim_smoke:
-                current_sec = time.strftime('%H:%M:%S')
-                if not alert_history or alert_history[-1]["time"] != current_sec:
-                    add_alert(sim_fire, sim_smoke, len(detections))
-                    
-            if not HAS_CV2_NUMPY:
-                yield (b'--frame\r\n'
-                       b'Content-Type: image/jpeg\r\n\r\n' + MOCK_FRAME_BYTES + b'\r\n')
-                time.sleep(0.5)  # 2 FPS
-                continue
-                
-            # Generate simulated frame using numpy and cv2
-            frame = np.zeros((480, 640, 3), dtype=np.uint8)
-            cv2.putText(frame, "SIMULATED CAMERA FEED", (180, 220),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
-            cv2.putText(frame, "AI Monitoring Active", (200, 260),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 1)
-            
-            if sim_fire:
-                cv2.rectangle(frame, (150, 100), (450, 380), (0, 0, 255), 2)
-                cv2.putText(frame, "FIRE: 0.92", (150, 90),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
-                
-            if sim_smoke:
-                cv2.rectangle(frame, (100, 80), (540, 400), (0, 255, 255), 2)
-                cv2.putText(frame, "SMOKE: 0.85", (100, 70),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
-                    
-            annotated_frame = frame
-            time.sleep(0.1)  # 10 FPS
-        else:
-            if camera is None or not camera.isOpened():
-                time.sleep(0.1)
-                continue
-                
-            ret, frame = camera.read()
-            if not ret:
-                print("[WARN] Camera read failed. Releasing camera and falling back to simulated feed.")
-                is_mock_camera = True
-                try:
-                    camera.release()
-                except Exception:
-                    pass
-                camera = None
-                continue
-            
-            # Mirror flip
-            frame = cv2.flip(frame, 1)
-            
-            # Run detection
-            if detector:
-                try:
-                    annotated_frame, fire_detected, smoke_detected, detections = detector.detect(frame)
-                    
-                    # Update status
-                    last_detection_result = {
-                        "fire": fire_detected,
-                        "smoke": smoke_detected,
-                        "timestamp": time.time(),
-                        "detections": len(detections)
-                    }
-                    
-                    # Add alerts
-                    if fire_detected or smoke_detected:
-                        add_alert(fire_detected, smoke_detected, len(detections))
-                    
-                except Exception as e:
-                    print(f"[ERROR] Detection error: {e}")
-                    annotated_frame = frame
-            else:
-                annotated_frame = frame
-        
-        # Calculate FPS
-        frame_count += 1
-        elapsed = time.time() - local_fps_time
-        if elapsed >= 1.0:
-            current_fps = frame_count / elapsed
-            frame_count = 0
-            local_fps_time = time.time()
-        
-        # Draw FPS on frame
-        cv2.putText(annotated_frame, f"FPS: {current_fps:.1f}", (10, 30),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-        
-        # Encode
-        ret, buffer = cv2.imencode('.jpg', annotated_frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
-        if not ret:
-            continue
-            
-        frame_bytes = buffer.tobytes()
-        
-        yield (b'--frame\r\n'
-               b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
-    
-    print("[INFO] Video stream ended")
-
-
-def add_alert(fire, smoke, count):
-    """Add alert to history"""
-    global alert_history
-    timestamp = time.strftime('%H:%M:%S')
-    
-    if fire:
-        alert_history.append({
-            "type": "fire",
-            "title": "FIRE DETECTED",
-            "message": f"Fire detected with {count} object(s)",
-            "time": timestamp
-        })
-        print(f"[ALERT] Fire detected at {timestamp}")
-    
-    if smoke:
-        alert_history.append({
-            "type": "smoke",
-            "title": "SMOKE DETECTED",
-            "message": f"Smoke detected with {count} object(s)",
-            "time": timestamp
-        })
-        print(f"[ALERT] Smoke detected at {timestamp}")
-    
-    # Keep only last 100 alerts
-    alert_history = alert_history[-100:]
-
-
-# ===== ROUTES =====
-
-@app.route('/')
-def index():
-    """Landing page - redirect to dashboard if logged in"""
-    if 'user' in session:
-        return redirect(url_for('dashboard'))
-    return render_template('landing.html')
-
-
-@app.route('/login', methods=['GET', 'POST'])
-def login():
-    """Login page with username and password."""
-    if 'user' in session:
-        return redirect(url_for('dashboard'))
-
-    if request.method == 'POST':
-        username = request.form.get('username', '').strip()
-        password = request.form.get('password', '').strip()
-
-        if username in USERS and USERS[username] == password:
-            session['user'] = {
-                'username': username,
-                'name': username.capitalize(),
-                'email': f'{username}@example.com'
-            }
-            return redirect(url_for('dashboard'))
-
-        flash('Invalid username or password. Use admin/admin123 or user/user123.', 'error')
-
-    return render_template('login.html', google_client_id=GOOGLE_CLIENT_ID or '')
-
-
-@app.route('/dashboard')
-@login_required
-def dashboard():
-    """Main dashboard page"""
-    return render_template('dashboard.html', user=session.get('user', {}))
-
-
-@app.route('/verify', methods=['POST'])
-def verify():
-    """Verify Google ID token"""
-    try:
-        from google.oauth2 import id_token
-        from google.auth.transport import requests as google_requests
-        
-        data = request.get_json()
-        if not data or 'id_token' not in data:
-            return jsonify({"success": False, "error": "No token provided"}), 400
-        
-        if not GOOGLE_CLIENT_ID:
-            return jsonify({"success": False, "error": "Google OAuth not configured"}), 500
-        
-        # Verify token
-        idinfo = id_token.verify_oauth2_token(
-            data['id_token'],
-            google_requests.Request(),
-            GOOGLE_CLIENT_ID
-        )
-        
-        # Validate issuer
-        if idinfo.get('iss') not in ['accounts.google.com', 'https://accounts.google.com']:
-            return jsonify({"success": False, "error": "Invalid token issuer"}), 401
-        
-        # Validate email
-        email = idinfo.get('email', '')
-        if not email or '@' not in email:
-            return jsonify({"success": False, "error": "Invalid email"}), 400
-        
-        # Set session
-        session['user'] = {
-            'email': email,
-            'name': idinfo.get('name', email.split('@')[0]),
-            'picture': idinfo.get('picture', ''),
-            'locale': idinfo.get('locale', 'en')
-        }
-        
-        return jsonify({"success": True, "user": session['user']})
-        
-    except ValueError as e:
-        return jsonify({"success": False, "error": f"Invalid token: {str(e)}"}), 401
-    except Exception as e:
-        return jsonify({"success": False, "error": f"Server error: {str(e)}"}), 500
-
-
-@app.route('/logout')
-def logout():
-    """Logout and clear session"""
-    session.clear()
-    return redirect(url_for('login'))
-
-
-# ===== API ROUTES =====
+# ==========================================
+# AUTH ENDPOINTS
+# ==========================================
 
 @app.route('/api/login', methods=['POST'])
 def api_login():
-    data = request.get_json() or {}
-    email = data.get('email', '').strip()
-    password = data.get('password', '').strip()
-
-    if not email or not password:
-        return jsonify({"success": False, "error": "Email and password are required"}), 400
-
-    username = email.split('@')[0].replace('.', ' ').title()
-    session['user'] = {
-        'email': email,
-        'name': username,
-        'username': username.lower().replace(' ', '_')
-    }
-    return jsonify({"success": True, "user": session['user']})
-
+    """
+    Accepts ANY email.
+    Body format: {email, name(optional)}
+    If no email, returns 400.
+    """
+    data = request.get_json(silent=True) or {}
+    email = data.get("email")
+    name = data.get("name")
+    
+    # Fallback to form data if JSON body is empty
+    if not email:
+        email = request.form.get("email")
+        name = request.form.get("name")
+        
+    if not email:
+        return jsonify({"error": "Email is required"}), 400
+        
+    if not name:
+        name = email.split('@')[0].capitalize()
+        
+    user = {"email": email, "name": name}
+    session['user'] = user
+    return jsonify({"success": True, "user": user})
 
 @app.route('/api/logout', methods=['POST'])
 def api_logout():
+    """
+    Clear session and return success.
+    """
     session.clear()
     return jsonify({"success": True})
 
+@app.route('/api/me', methods=['GET'])
+def api_me():
+    """
+    Return session user or 401.
+    """
+    if 'user' in session:
+        return jsonify(session['user'])
+    return jsonify({"error": "Unauthorized"}), 401
 
-@app.route('/api/properties')
-@login_required
+
+# ==========================================
+# PROPERTIES ENDPOINTS
+# ==========================================
+
+@app.route('/api/properties', methods=['GET'])
 def get_properties():
-    return jsonify({"properties": properties})
-
+    """
+    Return the list of all properties.
+    """
+    return jsonify(list(properties.values()))
 
 @app.route('/api/properties', methods=['POST'])
-@login_required
 def create_property():
-    global next_property_id
-    data = request.get_json() or {}
-    address = data.get('address', '').strip()
-    coordinates = data.get('coordinates', '').strip()
-    password = data.get('password', '').strip()
-
-    if not address or not coordinates or not password:
-        return jsonify({"error": "Address, coordinates, and password are required"}), 400
-
+    """
+    Create a new property with a uuid id.
+    Body fields: name, address, lat, lng, password.
+    Emits socketio event "property_added".
+    Returns 201.
+    """
+    data = request.get_json(silent=True) or {}
+    prop_id = str(uuid.uuid4())
+    
     new_property = {
-        "id": next_property_id,
-        "name": address.split(',')[0] if address else f"Property {next_property_id}",
-        "address": address,
-        "coordinates": coordinates,
-        "cameras": 1,
-        "status": "active"
+        "id": prop_id,
+        "name": data.get("name", ""),
+        "address": data.get("address", ""),
+        "lat": data.get("lat"),
+        "lng": data.get("lng"),
+        "password": data.get("password", ""),
+        "status": "normal",
+        "alert_active": False,
+        "created_at": datetime.datetime.utcnow().isoformat()
     }
-    properties.append(new_property)
-    next_property_id += 1
-    return jsonify({"property": new_property}), 201
+    
+    properties[prop_id] = new_property
+    socketio.emit("property_added", new_property)
+    return jsonify(new_property), 201
+
+@app.route('/api/properties/<id>', methods=['GET'])
+def get_property(id):
+    """
+    Return property by ID or 404.
+    """
+    if id in properties:
+        return jsonify(properties[id])
+    return jsonify({"error": "Property not found"}), 404
+
+@app.route('/api/properties/<id>', methods=['DELETE'])
+def delete_property(id):
+    """
+    Delete property by ID or 404.
+    """
+    if id in properties:
+        del properties[id]
+        return jsonify({"success": True})
+    return jsonify({"error": "Property not found"}), 404
 
 
-@app.route('/api/properties/<int:property_id>')
-@login_required
-def get_property(property_id):
-    property_item = get_property_by_id(property_id)
-    if not property_item:
-        return jsonify({"error": "Property not found"}), 404
-    return jsonify({"property": property_item})
+# ==========================================
+# DETECTION ENDPOINTS
+# ==========================================
 
-
-@app.route('/api/health')
-def health():
-    """Health check endpoint"""
+@app.route('/api/health', methods=['GET'])
+def api_health():
+    """
+    Returns system status, detector availability, YOLO loaded status,
+    and hardcoded camera_available=False.
+    """
+    yolo_loaded = _detector.yolo_available if _detector is not None else False
     return jsonify({
         "status": "healthy",
-        "detector_ready": detector is not None,
-        "camera_ready": camera is not None and camera.isOpened() if camera else False,
-        "timestamp": time.time()
+        "detector_available": True,
+        "yolo_loaded": yolo_loaded,
+        "camera_available": False
     })
-
 
 @app.route('/api/start_detection', methods=['POST'])
-@login_required
-def start_detection():
-    """Start live detection"""
-    global is_detecting
-    
-    if not init_detector():
-        return jsonify({"error": "Failed to initialize detector"}), 500
-    
-    if not init_camera():
-        return jsonify({"error": "Failed to initialize camera"}), 500
-    
-    is_detecting = True
-    print("[OK] Detection started")
-    return jsonify({"message": "Detection started", "status": "running"})
-
+def api_start_detection():
+    """
+    Set running=True and return status "running".
+    """
+    detection_state["running"] = True
+    return jsonify({"status": "running"})
 
 @app.route('/api/stop_detection', methods=['POST'])
-@login_required
-def stop_detection():
-    """Stop live detection"""
-    global is_detecting, camera
-    is_detecting = False
-    if camera is not None:
-        try:
-            camera.release()
-            print("[OK] Camera released")
-        except Exception as e:
-            print(f"[WARN] Error releasing camera: {e}")
-        camera = None
-    print("[OK] Detection stopped")
-    return jsonify({"message": "Detection stopped", "status": "stopped"})
+def api_stop_detection():
+    """
+    Set running=False and return status "stopped".
+    """
+    detection_state["running"] = False
+    return jsonify({"status": "stopped"})
+
+@app.route('/api/status', methods=['GET'])
+def api_status():
+    """
+    Return detection_state.
+    """
+    return jsonify(detection_state)
 
 
-@app.route('/api/live_detection')
-@login_required
-def live_detection():
-    """Live video stream endpoint"""
-    return Response(
-        generate_video_stream(),
-        mimetype='multipart/x-mixed-replace; boundary=frame'
-    )
+# ==========================================
+# IMAGE DETECTION & HELPER
+# ==========================================
 
-
-@app.route('/api/status')
-@login_required
-def get_status():
-    """Get current detection status"""
-    return jsonify({
-        **last_detection_result,
-        "fps": round(current_fps, 1),
-        "is_detecting": is_detecting,
-        "alert_count": len(alert_history)
-    })
-
-
-@app.route('/api/alerts')
-@login_required
-def get_alerts():
-    """Get alert history"""
-    limit = request.args.get('limit', 50, type=int)
-    return jsonify({
-        "alerts": alert_history[-limit:],
-        "total": len(alert_history)
-    })
-
-
-@app.route('/api/alerts/clear', methods=['POST'])
-@login_required
-def clear_alerts():
-    """Clear alert history"""
-    global alert_history
-    alert_history = []
-    return jsonify({"message": "Alerts cleared"})
-
+def _decode_request_image():
+    """
+    Decodes requests with image data.
+    Checks request.files["image"] first.
+    Then checks request.json body with "image_data" or "frame" key.
+    Handles data URL prefixes (e.g. data:image/jpeg;base64,...).
+    Returns BGR numpy frame or None.
+    """
+    # 1. Check request.files["image"]
+    if "image" in request.files:
+        file = request.files["image"]
+        if file.filename != "":
+            img_bytes = file.read()
+            nparr = np.frombuffer(img_bytes, np.uint8)
+            frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            if frame is not None:
+                return frame
+                
+    # 2. Check request.json body with "image_data" or "frame" key
+    data = request.get_json(silent=True)
+    if data:
+        img_str = data.get("image_data") or data.get("frame")
+        if img_str and isinstance(img_str, str):
+            if "," in img_str:
+                img_str = img_str.split(",", 1)[1]
+            try:
+                img_bytes = base64.b64decode(img_str)
+                nparr = np.frombuffer(img_bytes, np.uint8)
+                frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                if frame is not None:
+                    return frame
+            except Exception:
+                return None
+    return None
 
 @app.route('/api/detect_image', methods=['POST'])
-@login_required
-def detect_image():
-    """Detect fire/smoke in uploaded image"""
-    if not init_detector():
-        return jsonify({"error": "Detector not initialized"}), 500
+@app.route('/api/detect_frame', methods=['POST'])
+def api_detect_image():
+    """
+    Processes image/frame detection.
+    Decodes the image, runs detection, and updates detection_state.
+    If an alert is active, it adds to alerts (cap 200) and emits SocketIO event "alert".
+    """
+    frame = _decode_request_image()
+    if frame is None:
+        return jsonify({"error": "Invalid or missing image"}), 400
+        
+    det = get_detector()
+    annotated_frame, detections_list, alert_bool = det.detect(frame)
     
-    try:
-        if 'image' not in request.files:
-            return jsonify({"error": "No image provided"}), 400
-        
-        file = request.files['image']
-        if file.filename == '':
-            return jsonify({"error": "Empty filename"}), 400
-        
-        # Read image
-        img_bytes = file.read()
-        
-        if not HAS_CV2_NUMPY:
-            filename_lower = file.filename.lower()
-            fire = 'fire' in filename_lower
-            smoke = 'smoke' in filename_lower
-            detections = []
-            if fire:
-                detections.append(("fire", 0.90))
-            if smoke:
-                detections.append(("smoke", 0.85))
-            
-            # Return static mock placeholder image
-            img_base64 = base64.b64encode(MOCK_FRAME_BYTES).decode('utf-8')
-            return jsonify({
-                "fire": fire,
-                "smoke": smoke,
-                "detections": [{"class": d[0], "confidence": float(d[1])} for d in detections],
-                "annotated_image": img_base64,
-                "timestamp": time.time()
-            })
-            
-        nparr = np.frombuffer(img_bytes, np.uint8)
-        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        
-        if frame is None:
-            return jsonify({"error": "Invalid image"}), 400
-        
-        # Detect
-        annotated, fire, smoke, detections = detector.detect(frame)
-        
-        # Encode result
-        _, buffer = cv2.imencode('.jpg', annotated)
-        img_base64 = base64.b64encode(buffer).decode('utf-8')
-        
-        return jsonify({
-            "fire": fire,
-            "smoke": smoke,
-            "detections": [{"class": d[0], "confidence": float(d[1])} for d in detections],
-            "annotated_image": img_base64,
-            "timestamp": time.time()
-        })
-        
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
-# ===== ERROR HANDLERS =====
-
-@app.errorhandler(404)
-def not_found(e):
-    return jsonify({"error": "Not found"}), 404
-
-@app.errorhandler(500)
-def server_error(e):
-    return jsonify({"error": "Internal server error"}), 500
-
-
-# ===== MAIN =====
-
-if __name__ == '__main__':
-    print("=" * 60)
-    print("   AI FIRE & SMOKE DETECTION SYSTEM   ")
-    print("=" * 60)
-    print("Features:")
-    print("  * Real-time YOLOv8 detection")
-    print("  * Google OAuth authentication")
-    print("  * Live video streaming")
-    print("  * Alert system with notifications")
-    print("=" * 60)
+    # Update detection state
+    detection_state["alert_active"] = alert_bool
+    detection_state["detections"] = detections_list
     
-    # Initialize detector
-    init_detector()
+    # Encode annotated frame as base64 JPEG
+    _, buffer = cv2.imencode('.jpg', annotated_frame)
+    img_base64 = base64.b64encode(buffer).decode('utf-8')
+    annotated_image_url = f"data:image/jpeg;base64,{img_base64}"
     
-    # Print access info
-    print("\nAccess URLs:")
-    print("  Local:   http://localhost:5000")
-    print("  Network: http://0.0.0.0:5000")
-    
-    if not GOOGLE_CLIENT_ID:
-        print("\nWARNING: GOOGLE_CLIENT_ID not set!")
-        print("   Set DEV_MODE=true to enable development mode")
-        print("   Or add GOOGLE_CLIENT_ID to .env file")
-    
-    print("\nPress Ctrl+C to stop\n")
-    
-    app.run(
-        host='0.0.0.0',
-        port=5000,
-        debug=True,
-        threaded=True,
-        use_reloader=False
-    )
+    if alert_bool:
+        entry = {
+            "id": str(uuid.uuid4()),
+            "timestamp": datetime.datetime.utcnow().isoformat(),
+            "detections": detections_list,
+            "alert": alert_bool,
+            "count": len(detections_list)
+        }
+        alerts.append(entry)
+        if len(alerts) > 200:
+            alerts.pop(0)
+        socketio.emit("alert", entry)
+        
+    return jsonify({
+        "success": True,
+        "annotated_image": annotated_image_url,
+        "detections": detections_list,
+        "alert": alert_bool,
+        "count": len(detections_list)
+    })
 
+
+# ==========================================
+# ALERTS ENDPOINTS
+# ==========================================
+
+@app.route('/api/alerts', methods=['GET'])
+def get_alerts():
+    """
+    Returns last N alerts (default 50).
+    """
+    limit = request.args.get('limit', 50, type=int)
+    return jsonify(alerts[-limit:] if alerts else [])
+
+@app.route('/api/alerts/clear', methods=['POST'])
+def clear_alerts():
+    """
+    Clear alert list and emit socketio event "alerts_cleared".
+    """
+    alerts.clear()
+    socketio.emit("alerts_cleared")
+    return jsonify({"success": True})
+
+
+# ==========================================
+# SOCKETIO EVENTS
+# ==========================================
+
+@socketio.on('connect')
+def handle_connect():
+    """
+    On client connection, emit {message: "Connected to Agniv 2.0"}
+    """
+    emit("message", {"message": "Connected to Agniv 2.0"})
+
+
+# ==========================================
+# RUN ENTRY POINT
+# ==========================================
+
+if __name__ == "__main__":
+    port = int(os.getenv("PORT", 5000))
+    socketio.run(app, host="0.0.0.0", port=port, debug=False, use_reloader=False)

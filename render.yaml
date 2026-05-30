@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: agniv-backend
+    env: python
+    region: singapore
+    plan: free
+    buildCommand: pip install -r fire_detection_system/requirements.txt
+    startCommand: gunicorn --worker-class eventlet -w 1 --bind 0.0.0.0:$PORT web_app:app
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ALLOWED_ORIGINS
+        value: https://agniv-frontend.vercel.app
+      - key: PYTHON_VERSION
+        value: 3.11.0

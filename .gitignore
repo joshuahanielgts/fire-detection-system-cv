@@ -1,33 +1,14 @@
-# Python
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
-.pytest_cache/
-.venv/
-venv/
-ENV/
-env/
-*.pt
-
-# Node/Vite
+.env
+.env.*
+!.env.example
 node_modules/
+dist/
 .vite/
-.vite_opt_cache/
-deps_temp_*/
-
-# IDEs
-.vscode/
-.idea/
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
-
-# Vercel
-.vercel/
-
-# OS files
-.DS_Store
-Thumbs.db
+*.pt
+venv/
+.venv/
+*.egg-info/

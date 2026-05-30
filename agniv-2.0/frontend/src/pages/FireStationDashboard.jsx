@@ -1,275 +1,269 @@
-import React, { useEffect, useState, useContext } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, MapPin, AlertTriangle, Shield, Users, Clock, CheckCircle, Compass } from 'lucide-react'
-import { AuthContext } from '../App'
-import { fetchStatus, getAlerts, clearAlerts } from '../services/api'
-import '../styles/FireStationDashboard.css'
+import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { getAlerts, clearAlerts } from '../services/api';
+import { 
+  ArrowLeft, 
+  MapPin, 
+  ShieldAlert, 
+  Activity, 
+  Users, 
+  CheckCircle, 
+  AlertTriangle,
+  Clock,
+  Compass,
+  Zap
+} from 'lucide-react';
 
 export default function FireStationDashboard() {
-  const navigate = useNavigate()
-  const { handleLogout } = useContext(AuthContext)
-  const [status, setStatus] = useState({ is_detecting: false, fps: 0, alert_count: 0, fire: false, smoke: false })
-  const [alerts, setAlerts] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [myLocation, setMyLocation] = useState(null)
-  const [geoError, setGeoError] = useState('')
+  const navigate = useNavigate();
 
-  const mapUrl = myLocation
-    ? `https://www.openstreetmap.org/export/embed.html?bbox=${myLocation.lng - 0.02}%2C${myLocation.lat - 0.01}%2C${myLocation.lng + 0.02}%2C${myLocation.lat + 0.01}&layer=mapnik&marker=${myLocation.lat}%2C${myLocation.lng}`
-    : null
+  // State
+  const [location, setLocation] = useState(null); // {lat, lng}
+  const [locationError, setLocationError] = useState('');
+  const [alertsHistory, setAlertsHistory] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  const fireStation = {
-    name: 'Central Fire Station',
-    coordinates: { lat: 9.7557, lng: 76.6487 },
-    accuracy: 10,
-    onDuty: 12,
-    enRoute: 0,
-    total: 12
-  }
+  // Fallback coords: Chennai, India (13.0827, 80.2707)
+  const defaultCoords = { lat: 13.0827, lng: 80.2707 };
+  const currentCoords = location || defaultCoords;
 
-  const responders = [
-    { id: 1, name: 'Fire Truck Unit 01', type: 'Heavy Duty', status: 'Available', coords: '9.7557, 76.6487' },
-    { id: 2, name: 'Ambulance Unit 02', type: 'Medical', status: 'Available', coords: '9.7550, 76.6480' },
-    { id: 3, name: 'Fire Truck Unit 03', type: 'Light Duty', status: 'Available', coords: '9.7560, 76.6490' },
-    { id: 4, name: 'Response Team 04', type: 'Ground', status: 'On Standby', coords: '9.7565, 76.6495' }
-  ]
+  // Mock teams
+  const teams = [
+    { name: 'Fire Team Alpha', status: 'Available', type: 'Heavy Pumper', location: 'Central Headquarters' },
+    { name: 'Rescue Unit Bravo', status: 'En Route', type: 'Medical Hazmat', location: 'Industrial Sector 4' },
+    { name: 'Engine Squad Charlie', status: 'On Scene', type: 'Ladder Unit', location: 'Suburban Port Terminal' },
+    { name: 'Support Unit Delta', status: 'Available', type: 'Wildfire Carrier', location: 'Southern Foothills Station' }
+  ];
 
-  const loadStatus = async () => {
-    try {
-      const statusResponse = await fetchStatus()
-      setStatus(statusResponse.data)
-    } catch (error) {
-      console.error('Failed to load status', error)
-    }
-  }
+  // Map Iframe URL Bbox Calculation
+  const bbox = {
+    minLng: currentCoords.lng - 0.02,
+    minLat: currentCoords.lat - 0.01,
+    maxLng: currentCoords.lng + 0.02,
+    maxLat: currentCoords.lat + 0.01
+  };
+  const mapUrl = `https://www.openstreetmap.org/export/embed.html?bbox=${bbox.minLng}%2C${bbox.minLat}%2C${bbox.maxLng}%2C${bbox.maxLat}&layer=mapnik&marker=${currentCoords.lat}%2C${currentCoords.lng}`;
 
   const loadAlerts = async () => {
     try {
-      const alertsResponse = await getAlerts()
-      setAlerts(alertsResponse.data.alerts || [])
-    } catch (error) {
-      console.error('Failed to load alerts', error)
+      const data = await getAlerts(15);
+      setAlertsHistory(data.alerts || []);
+    } catch (err) {
+      console.error('Failed to load alert history', err);
+    } finally {
+      setLoading(false);
     }
-  }
-
-  const refreshDashboard = async () => {
-    setLoading(true)
-    await Promise.all([loadStatus(), loadAlerts()])
-    setLoading(false)
-  }
+  };
 
   useEffect(() => {
-    refreshDashboard()
-    const interval = setInterval(refreshDashboard, 6000)
-    return () => clearInterval(interval)
-  }, [])
+    loadAlerts();
 
-  useEffect(() => {
-    if (!('geolocation' in navigator)) {
-      setGeoError('Geolocation is not supported by this browser.')
-      return
+    // Query GPS coordinates
+    if ('geolocation' in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setLocation({
+            lat: position.coords.latitude,
+            lng: position.coords.longitude
+          });
+        },
+        (error) => {
+          console.warn('Geolocation access failed:', error.message);
+          setLocationError('Geolocation permission denied. Using fallback coordinates.');
+        },
+        { enableHighAccuracy: true, timeout: 8000 }
+      );
+    } else {
+      setLocationError('Geolocation is not supported by this browser.');
     }
+  }, []);
 
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const { latitude, longitude } = position.coords
-        setMyLocation({ lat: latitude, lng: longitude, accuracy: position.coords.accuracy })
-      },
-      (error) => {
-        setGeoError(error.message || 'Unable to retrieve your location.')
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 10000
-      }
-    )
-  }, [])
-
-  const handleClearAlerts = async () => {
+  const handleClearAllAlerts = async () => {
+    if (!window.confirm('Are you sure you want to clear dispatch logs?')) return;
     try {
-      await clearAlerts()
-      setAlerts([])
-      setStatus((prev) => ({ ...prev, alert_count: 0 }))
-    } catch (error) {
-      console.error('Clear alerts failed', error)
+      await clearAlerts();
+      setAlertsHistory([]);
+    } catch (err) {
+      console.error('Failed to clear alerts', err);
     }
-  }
+  };
 
   return (
-    <div className="fire-station-container">
-      <header className="fire-station-header glass-card">
-        <div className="header-left">
-          <button className="btn-icon" onClick={() => navigate('/dashboard')}>
-            <ArrowLeft className="w-5 h-5" />
+    <div className="page-wrapper min-h-screen text-[#e0e0e0] flex flex-col gap-6">
+      
+      {/* Header */}
+      <header className="glass-card p-6 flex flex-col sm:flex-row justify-between items-center gap-4">
+        <div className="flex items-center gap-3">
+          <button 
+            onClick={() => navigate('/dashboard')}
+            className="btn-ghost p-2 border-none hover:bg-white/5"
+            style={{ padding: '6px 12px' }}
+          >
+            <ArrowLeft size={20} />
           </button>
           <div>
-            <h2>Fire Station Dashboard</h2>
-            <p>Real-time Emergency Response Center</p>
+            <h1 className="text-xl font-bold text-white flex items-center gap-2">
+              <ShieldAlert className="text-red-500" />
+              Emergency Response Ops Center
+            </h1>
+            <p className="text-xs text-[#888]">
+              Agniv Fire Coordination & Dispatch Desk
+            </p>
           </div>
         </div>
-        <button className="btn-icon" onClick={() => { handleLogout(); navigate('/'); }}>
-          ✕
-        </button>
+
+        <div className="flex items-center gap-2 text-xs font-mono bg-white/5 px-3 py-1.5 rounded-lg border border-white/5">
+          <Compass size={14} className="text-red-500 animate-spin-slow" />
+          <span>Responder GPS: {currentCoords.lat.toFixed(5)}, {currentCoords.lng.toFixed(5)}</span>
+        </div>
       </header>
 
-      <div className="fire-station-content">
-        <section className="status-section">
-          <div className="status-card glass-card highlight">
-            <div className="status-icon all-clear">
-              <CheckCircle className="w-12 h-12" />
-            </div>
-            <div className="status-info">
-              <h3>Status</h3>
-              <p className="status-text">{status.fire ? 'Emergency Detected' : 'All Clear!'}</p>
-            </div>
-          </div>
+      {locationError && (
+        <div className="p-3 bg-amber-500/10 border border-amber-500/20 text-amber-500 rounded-lg text-xs">
+          {locationError}
+        </div>
+      )}
 
-          <div className="status-card glass-card">
-            <div className="status-header">
-              <MapPin className="w-5 h-5 text-orange-400" />
-              <h3>Location</h3>
+      {/* Main Operations Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        
+        {/* Left Section - GPS Tracking Map (8 columns) */}
+        <div className="lg:col-span-8 flex flex-col gap-6">
+          <div className="glass-card overflow-hidden border border-white/5 relative">
+            <div className="p-4 border-b border-white/5 bg-white/20 text-sm font-bold text-white flex justify-between items-center">
+              <span className="flex items-center gap-1.5">
+                <MapPin className="text-red-500 w-4 h-4" /> Live Incident Dispatch Map
+              </span>
+              <span className="text-xs font-mono text-[#888]">OpenStreetMap Grid</span>
             </div>
-            <div className="location-info">
-              <p className="coordinates">{fireStation.coordinates.lat}, {fireStation.coordinates.lng}</p>
-              <p className="accuracy">Accuracy: ±{fireStation.accuracy}m</p>
-            </div>
-          </div>
-
-          <div className="status-card glass-card">
-            <div className="status-header">
-              <AlertTriangle className="w-5 h-5 text-orange-400" />
-              <h3>Active Alerts</h3>
-            </div>
-            <p className="alert-count">{status.alert_count || alerts.length}</p>
-            <p className="status-text">{status.alert_count ? 'Responding to active incident' : 'No active emergencies'}</p>
-            <button className="btn btn-secondary" style={{ marginTop: '1rem' }} onClick={handleClearAlerts}>
-              Clear Alerts
-            </button>
-          </div>
-
-          <div className="status-card glass-card">
-            <div className="status-header">
-              <Users className="w-5 h-5 text-orange-400" />
-              <h3>Team Status</h3>
-            </div>
-            <div className="team-stats">
-              <div className="stat">
-                <span className="label">On Duty</span>
-                <span className="value">{fireStation.onDuty}</span>
-              </div>
-              <div className="divider"></div>
-              <div className="stat">
-                <span className="label">En Route</span>
-                <span className="value">{fireStation.enRoute}</span>
-              </div>
-              <div className="divider"></div>
-              <div className="stat">
-                <span className="label">Total</span>
-                <span className="value">{fireStation.total}</span>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="map-section glass-card">
-          <div className="map-header">
-            <h3>GPS Tracking Map</h3>
-            <button className="btn btn-secondary" onClick={() => window.location.reload()}>
-              <Compass className="w-4 h-4" />
-              Refresh Location
-            </button>
-          </div>
-          <div className="map-container">
-            {mapUrl ? (
+            
+            {/* 400px Tall Map Iframe */}
+            <div style={{ height: '400px', width: '100%', position: 'relative' }}>
               <iframe
-                title="GPS Tracking Map"
+                title="GPS Dispatch Map"
                 src={mapUrl}
-                style={{ border: 'none', width: '100%', height: '100%' }}
+                width="100%"
+                height="100%"
+                style={{ border: 0 }}
+                allowFullScreen=""
                 loading="lazy"
               />
+            </div>
+          </div>
+
+          {/* Team Availability Table */}
+          <div className="glass-card p-6 border border-white/5 flex flex-col gap-4">
+            <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+              <Users className="text-fire-500 w-4 h-4" /> Responder Squad Status
+            </h3>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="border-b border-white/10 text-[#888]">
+                    <th className="py-2 px-1">Squad Unit</th>
+                    <th className="py-2 px-1">Equipment Class</th>
+                    <th className="py-2 px-1">Current Sector</th>
+                    <th className="py-2 px-1 text-right">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {teams.map((team, idx) => (
+                    <tr key={idx} className="border-b border-white/5 hover:bg-white/5 transition-all">
+                      <td className="py-3 px-1 font-bold text-white">{team.name}</td>
+                      <td className="py-3 px-1 text-[#888]">{team.type}</td>
+                      <td className="py-3 px-1 flex items-center gap-1 mt-0.5">
+                        <MapPin size={12} className="text-[#888]" /> {team.location}
+                      </td>
+                      <td className="py-3 px-1 text-right">
+                        <span className={`px-2.5 py-0.5 rounded text-[10px] font-bold ${
+                          team.status === 'Available' ? 'bg-green-500/10 text-green-400 border border-green-500/20' :
+                          team.status === 'En Route' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' :
+                          'bg-red-500/10 text-red-400 border border-red-500/20'
+                        }`}>
+                          {team.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        {/* Right Section - Dispatch Control & History logs (4 columns) */}
+        <div className="lg:col-span-4 flex flex-col gap-6">
+          
+          {/* Dispatch Control Desk */}
+          <div className="glass-card p-6 border border-white/5 flex flex-col gap-4">
+            <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+              <Zap className="text-red-500 w-4 h-4 animate-pulse" /> Dispatch Desk
+            </h3>
+            
+            <div className="p-4 bg-red-500/5 border border-red-500/20 rounded-xl flex items-start gap-2.5">
+              <AlertTriangle className="text-red-500 flex-shrink-0 mt-0.5" size={18} />
+              <div>
+                <span className="text-xs font-bold text-red-500 block">Open Broadcast active</span>
+                <span className="text-[11px] text-[#888]">
+                  Incident monitors relay alerts directly via MQTT / WebSocket pipelines.
+                </span>
+              </div>
+            </div>
+
+            <button
+              onClick={handleClearAllAlerts}
+              className="btn-ghost w-full py-2.5 text-xs text-red-500 border-red-500/15 hover:bg-red-500/5 hover:border-red-500/35"
+            >
+              Clear Dispatch Logs
+            </button>
+          </div>
+
+          {/* Alarm Incident Logs */}
+          <div className="glass-card p-6 border border-white/5 flex flex-col gap-4 flex-1">
+            <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+              <Clock className="text-amber-500 w-4 h-4" /> Active Incident Log
+            </h3>
+
+            {loading ? (
+              <div className="text-[#888] text-xs text-center py-10">Syncing history logs...</div>
+            ) : alertsHistory.length === 0 ? (
+              <div className="text-center py-10 text-xs text-[#666] flex flex-col items-center gap-2">
+                <CheckCircle className="text-green-500 w-8 h-8 opacity-40" />
+                No active incidents reported.
+              </div>
             ) : (
-              <div className="map-placeholder">
-                <MapPin className="w-24 h-24 text-orange-400" />
-                <p>{geoError || 'Waiting for your location...'}</p>
-                <p className="text-sm text-gray-400">Allow location access to show your current position.</p>
+              <div className="flex flex-col gap-3 overflow-y-auto max-h-[400px] pr-1">
+                {alertsHistory.map((alert, idx) => (
+                  <div key={idx} className="p-3 bg-white/5 border border-white/5 rounded-lg flex flex-col gap-1">
+                    <div className="flex justify-between items-center text-[10px]">
+                      <span className="text-[#888] font-mono">{alert.time}</span>
+                      <span className={`px-1.5 py-0.5 rounded font-bold uppercase ${
+                        alert.type === 'fire' ? 'bg-red-500/10 text-red-400' : 'bg-gray-500/10 text-gray-300'
+                      }`}>
+                        {alert.type || 'alarm'}
+                      </span>
+                    </div>
+                    <span className="text-xs font-semibold text-white">{alert.title}</span>
+                    <span className="text-[11px] text-[#888] truncate">{alert.message}</span>
+                  </div>
+                ))}
               </div>
             )}
           </div>
-          {myLocation && (
-            <div className="location-summary glass-card">
-              <p>
-                <strong>Your Location:</strong> {myLocation.lat.toFixed(5)}, {myLocation.lng.toFixed(5)}
-              </p>
-              <p>Accuracy: ±{myLocation.accuracy ? `${myLocation.accuracy.toFixed(1)}m` : 'unknown'}</p>
-            </div>
-          )}
-        </section>
-
-        <section className="responders-section">
-          <h3>Active Responders</h3>
-          <div className="responders-grid">
-            {responders.map((responder) => (
-              <div key={responder.id} className="responder-card glass-card">
-                <div className="responder-header">
-                  <div className="responder-icon">
-                    <Shield className="w-6 h-6" />
-                  </div>
-                  <div className="responder-title">
-                    <h4>{responder.name}</h4>
-                    <p className="responder-type">{responder.type}</p>
-                  </div>
-                </div>
-
-                <div className="responder-info">
-                  <div className="info-row">
-                    <span className="label">Status</span>
-                    <span className={`badge ${responder.status === 'Available' ? 'available' : 'standby'}`}>
-                      {responder.status}
-                    </span>
-                  </div>
-                  <div className="info-row">
-                    <span className="label">Location</span>
-                    <span className="coords">{responder.coords}</span>
-                  </div>
-                </div>
-
-                <button className="btn btn-secondary" style={{ width: '100%' }}>
-                  <Clock className="w-4 h-4" />
-                  View Route
-                </button>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="alerts-section glass-card">
-          <h3>Alert History</h3>
-          {loading ? (
-            <div className="empty-alerts">
-              <p>Loading alert history...</p>
-            </div>
-          ) : alerts.length === 0 ? (
-            <div className="empty-alerts">
-              <AlertTriangle className="w-16 h-16 text-orange-400" />
-              <p>No recent alerts or emergencies</p>
-            </div>
-          ) : (
-            <div className="alerts-list">
-              {alerts.map((alert, index) => (
-                <div key={index} className="alert-item glass-card">
-                  <div className="alert-meta">
-                    <span className="alert-type">{alert.type.toUpperCase()}</span>
-                    <span className="alert-time">{alert.time}</span>
-                  </div>
-                  <p className="alert-title">{alert.title}</p>
-                  <p className="alert-message">{alert.message}</p>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
+        </div>
       </div>
+      
+      {/* Slow spinning animation helper */}
+      <style>{`
+        @keyframes spin-slow {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+        .animate-spin-slow {
+          animation: spin-slow 8s linear infinite;
+        }
+      `}</style>
     </div>
-  )
+  );
 }

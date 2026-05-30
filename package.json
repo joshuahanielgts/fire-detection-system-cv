@@ -1,8 +1,0 @@
-{
-  "name": "agniva-monorepo",
-  "version": "1.0.0",
-  "private": true,
-  "scripts": {
-    "build": "cd agniv-2.0/frontend && npm install && npm run build"
-  }
-}
