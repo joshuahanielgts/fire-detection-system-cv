@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../App';
-import { loginUser } from '../services/api';
+import { loginUser, wakeUpBackend } from '../services/api';
 import '../styles/Auth.css';
 
 export default function Login() {
@@ -12,6 +12,16 @@ export default function Login() {
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [waking, setWaking] = useState(false);
+
+  useEffect(() => {
+    const triggerWakeup = async () => {
+      setWaking(true);
+      await wakeUpBackend();
+      setWaking(false);
+    };
+    triggerWakeup();
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -34,7 +44,12 @@ export default function Login() {
       }
     } catch (err) {
       console.error(err);
-      setError(err?.response?.data?.error || 'Login failed. Connection refused.');
+      const errMsg = String(err?.message || err || '').toLowerCase();
+      if (errMsg.includes('network error') || errMsg.includes('econnrefused') || errMsg.includes('timeout')) {
+        setError('Backend is waking up (free tier cold start). Please wait 30-60 seconds and try again.');
+      } else {
+        setError(err?.response?.data?.error || 'Login failed. Connection refused.');
+      }
     } finally {
       setLoading(false);
     }
@@ -46,6 +61,25 @@ export default function Login() {
       <div className="auth-orb orb-2"></div>
 
       <div className="auth-card glass-card">
+        {waking && (
+          <div 
+            className="animate-pulse"
+            style={{ 
+              backgroundColor: 'rgba(255, 69, 0, 0.12)', 
+              border: '1px solid rgba(255, 69, 0, 0.3)', 
+              color: '#ff8c00', 
+              padding: '8px 12px', 
+              borderRadius: '8px', 
+              fontSize: '0.825rem', 
+              marginBottom: '1.25rem',
+              textAlign: 'center',
+              fontWeight: 500
+            }}
+          >
+            ⏳ Waking up backend server...
+          </div>
+        )}
+
         <div className="auth-header">
           <div style={{ fontSize: '4.5rem', marginBottom: '1rem', textAlign: 'center' }}>🔥</div>
           <h1>Agniv 2.0</h1>

@@ -23,29 +23,21 @@ app.config['SESSION_COOKIE_SECURE'] = True
 app.secret_key = os.getenv("SECRET_KEY", "agniv-2-secret-key-fallback")
 
 # CORS Configuration
-origins = [
-    "http://localhost:5173", 
-    "http://localhost:3000", 
+ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://localhost:3000",
     "http://127.0.0.1:5173",
-    "https://localhost:5173",
-    "https://localhost:3000",
-    "https://127.0.0.1:5173",
-    "localhost:5173",
-    "localhost:3000",
-    "127.0.0.1:5173"
+    "http://127.0.0.1:3000",
 ]
-allowed_origins_env = os.getenv("ALLOWED_ORIGINS")
-if allowed_origins_env:
-    for origin in allowed_origins_env.split(","):
-        origin = origin.strip()
-        if origin:
-            origins.append(origin)
+_raw_origins = os.getenv("ALLOWED_ORIGINS")
+if _raw_origins:
+    ALLOWED_ORIGINS.extend([o.strip().rstrip('/') for o in _raw_origins.split(",") if o.strip()])
 
 # Setup CORS with app
-CORS(app, supports_credentials=True, origins=origins)
+CORS(app, supports_credentials=True, origins=ALLOWED_ORIGINS)
 
 # Setup SocketIO
-socketio = SocketIO(app, cors_allowed_origins=origins, async_mode="eventlet")
+socketio = SocketIO(app, cors_allowed_origins=ALLOWED_ORIGINS, async_mode="eventlet")
 
 # In-Memory Storage
 properties = {}

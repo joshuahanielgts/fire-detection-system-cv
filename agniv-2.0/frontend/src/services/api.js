@@ -3,6 +3,7 @@ import axios from 'axios';
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || '/api',
   withCredentials: true,
+  timeout: 60000,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -87,4 +88,14 @@ export const getLiveStreamUrl = () => {
   const baseURL = import.meta.env.VITE_API_URL || '/api';
   const cleanBase = baseURL.endsWith('/') ? baseURL.slice(0, -1) : baseURL;
   return `${cleanBase}/live_detection`;
+};
+
+// --- Backend wakeup trigger (Render cold start handling) ---
+export const wakeUpBackend = async () => {
+  try {
+    await api.get('/health', { timeout: 60000 });
+    return true;
+  } catch {
+    return false;
+  }
 };
